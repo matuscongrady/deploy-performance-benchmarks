@@ -1,0 +1,110 @@
+{
+  "readiness": {
+    "type": "lambda-invocation",
+    "fixture": "lambda-25",
+    "manifest": "../../fixtures/manifest.json",
+    "functions": [
+      {
+        "name": "report",
+        "functionName": "bench-commerce-lambda-25-bench-report"
+      },
+      {
+        "name": "product-lookup",
+        "functionName": "bench-commerce-lambda-25-bench-product-lookup"
+      },
+      {
+        "name": "cart-pricing",
+        "functionName": "bench-commerce-lambda-25-bench-cart-pricing"
+      },
+      {
+        "name": "create-order",
+        "functionName": "bench-commerce-lambda-25-bench-create-order"
+      },
+      {
+        "name": "notification",
+        "functionName": "bench-commerce-lambda-25-bench-notification"
+      },
+      {
+        "name": "product-search",
+        "functionName": "bench-commerce-lambda-25-bench-product-search"
+      },
+      {
+        "name": "category-list",
+        "functionName": "bench-commerce-lambda-25-bench-category-list"
+      },
+      {
+        "name": "inventory-check",
+        "functionName": "bench-commerce-lambda-25-bench-inventory-check"
+      },
+      {
+        "name": "reserve-stock",
+        "functionName": "bench-commerce-lambda-25-bench-reserve-stock"
+      },
+      {
+        "name": "release-stock",
+        "functionName": "bench-commerce-lambda-25-bench-release-stock"
+      },
+      {
+        "name": "shipping-quote",
+        "functionName": "bench-commerce-lambda-25-bench-shipping-quote"
+      },
+      {
+        "name": "tax-quote",
+        "functionName": "bench-commerce-lambda-25-bench-tax-quote"
+      },
+      {
+        "name": "apply-discount",
+        "functionName": "bench-commerce-lambda-25-bench-apply-discount"
+      },
+      {
+        "name": "payment-intent",
+        "functionName": "bench-commerce-lambda-25-bench-payment-intent"
+      },
+      {
+        "name": "payment-webhook",
+        "functionName": "bench-commerce-lambda-25-bench-payment-webhook"
+      },
+      {
+        "name": "order-status",
+        "functionName": "bench-commerce-lambda-25-bench-order-status"
+      },
+      {
+        "name": "cancel-order",
+        "functionName": "bench-commerce-lambda-25-bench-cancel-order"
+      },
+      {
+        "name": "return-request",
+        "functionName": "bench-commerce-lambda-25-bench-return-request"
+      },
+      {
+        "name": "customer-profile",
+        "functionName": "bench-commerce-lambda-25-bench-customer-profile"
+      },
+      {
+        "name": "customer-token",
+        "functionName": "bench-commerce-lambda-25-bench-customer-token"
+      },
+      {
+        "name": "invoice",
+        "functionName": "bench-commerce-lambda-25-bench-invoice"
+      },
+      {
+        "name": "catalog-import",
+        "functionName": "bench-commerce-lambda-25-bench-catalog-import"
+      },
+      {
+        "name": "catalog-feed",
+        "functionName": "bench-commerce-lambda-25-bench-catalog-feed"
+      },
+      {
+        "name": "daily-summary",
+        "functionName": "bench-commerce-lambda-25-bench-daily-summary"
+      },
+      {
+        "name": "shipment-update",
+        "functionName": "bench-commerce-lambda-25-bench-shipment-update"
+      }
+    ],
+    "sourceRoot": "../../fixtures/lambdas"
+  }
+}

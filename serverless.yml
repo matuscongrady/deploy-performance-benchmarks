@@ -1,0 +1,148 @@
+{
+  "frameworkVersion": "4.43.0",
+  "service": "bench-commerce-lambda-25",
+  "provider": {
+    "name": "aws",
+    "runtime": "nodejs22.x",
+    "region": "eu-west-1",
+    "stage": "bench",
+    "memorySize": 512,
+    "timeout": 30
+  },
+  "package": {
+    "individually": true,
+    "patterns": [
+      "!app/check.mjs",
+      "!app/workloads.json",
+      "!app/package-lock.json",
+      "!provider-plan.json",
+      "!manifest.json",
+      "!plan.json",
+      "!qualification.json",
+      "!qualifications.json",
+      "!native-outputs.json",
+      "!**/*.log",
+      "!**/evidence/**",
+      "!deployment/**",
+      "!providers/**",
+      "!docs/**",
+      "!scripts/**",
+      "!scenarios/**",
+      "!.work/**",
+      "!results/**"
+    ]
+  },
+  "functions": {
+    "report": {
+      "handler": "fixtures/lambdas/handlers/report.handler",
+      "name": "bench-commerce-lambda-25-bench-report"
+    },
+    "product-lookup": {
+      "handler": "fixtures/lambdas/handlers/product-lookup.handler",
+      "name": "bench-commerce-lambda-25-bench-product-lookup"
+    },
+    "cart-pricing": {
+      "handler": "fixtures/lambdas/handlers/cart-pricing.handler",
+      "name": "bench-commerce-lambda-25-bench-cart-pricing"
+    },
+    "create-order": {
+      "handler": "fixtures/lambdas/handlers/create-order.handler",
+      "name": "bench-commerce-lambda-25-bench-create-order"
+    },
+    "notification": {
+      "handler": "fixtures/lambdas/handlers/notification.handler",
+      "name": "bench-commerce-lambda-25-bench-notification"
+    },
+    "product-search": {
+      "handler": "fixtures/lambdas/handlers/product-search.handler",
+      "name": "bench-commerce-lambda-25-bench-product-search"
+    },
+    "category-list": {
+      "handler": "fixtures/lambdas/handlers/category-list.handler",
+      "name": "bench-commerce-lambda-25-bench-category-list"
+    },
+    "inventory-check": {
+      "handler": "fixtures/lambdas/handlers/inventory-check.handler",
+      "name": "bench-commerce-lambda-25-bench-inventory-check"
+    },
+    "reserve-stock": {
+      "handler": "fixtures/lambdas/handlers/reserve-stock.handler",
+      "name": "bench-commerce-lambda-25-bench-reserve-stock"
+    },
+    "release-stock": {
+      "handler": "fixtures/lambdas/handlers/release-stock.handler",
+      "name": "bench-commerce-lambda-25-bench-release-stock"
+    },
+    "shipping-quote": {
+      "handler": "fixtures/lambdas/handlers/shipping-quote.handler",
+      "name": "bench-commerce-lambda-25-bench-shipping-quote"
+    },
+    "tax-quote": {
+      "handler": "fixtures/lambdas/handlers/tax-quote.handler",
+      "name": "bench-commerce-lambda-25-bench-tax-quote"
+    },
+    "apply-discount": {
+      "handler": "fixtures/lambdas/handlers/apply-discount.handler",
+      "name": "bench-commerce-lambda-25-bench-apply-discount"
+    },
+    "payment-intent": {
+      "handler": "fixtures/lambdas/handlers/payment-intent.handler",
+      "name": "bench-commerce-lambda-25-bench-payment-intent"
+    },
+    "payment-webhook": {
+      "handler": "fixtures/lambdas/handlers/payment-webhook.handler",
+      "name": "bench-commerce-lambda-25-bench-payment-webhook"
+    },
+    "order-status": {
+      "handler": "fixtures/lambdas/handlers/order-status.handler",
+      "name": "bench-commerce-lambda-25-bench-order-status"
+    },
+    "cancel-order": {
+      "handler": "fixtures/lambdas/handlers/cancel-order.handler",
+      "name": "bench-commerce-lambda-25-bench-cancel-order"
+    },
+    "return-request": {
+      "handler": "fixtures/lambdas/handlers/return-request.handler",
+      "name": "bench-commerce-lambda-25-bench-return-request"
+    },
+    "customer-profile": {
+      "handler": "fixtures/lambdas/handlers/customer-profile.handler",
+      "name": "bench-commerce-lambda-25-bench-customer-profile"
+    },
+    "customer-token": {
+      "handler": "fixtures/lambdas/handlers/customer-token.handler",
+      "name": "bench-commerce-lambda-25-bench-customer-token"
+    },
+    "invoice": {
+      "handler": "fixtures/lambdas/handlers/invoice.handler",
+      "name": "bench-commerce-lambda-25-bench-invoice"
+    },
+    "catalog-import": {
+      "handler": "fixtures/lambdas/handlers/catalog-import.handler",
+      "name": "bench-commerce-lambda-25-bench-catalog-import"
+    },
+    "catalog-feed": {
+      "handler": "fixtures/lambdas/handlers/catalog-feed.handler",
+      "name": "bench-commerce-lambda-25-bench-catalog-feed"
+    },
+    "daily-summary": {
+      "handler": "fixtures/lambdas/handlers/daily-summary.handler",
+      "name": "bench-commerce-lambda-25-bench-daily-summary"
+    },
+    "shipment-update": {
+      "handler": "fixtures/lambdas/handlers/shipment-update.handler",
+      "name": "bench-commerce-lambda-25-bench-shipment-update"
+    }
+  },
+  "build": {
+    "esbuild": {
+      "minify": true,
+      "sourcemap": false,
+      "external": [
+        "pdfkit",
+        "exceljs",
+        "docx"
+      ]
+    }
+  }
+}
