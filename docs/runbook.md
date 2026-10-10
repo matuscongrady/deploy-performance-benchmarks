@@ -14,10 +14,10 @@ node scripts/check.mjs
 
 Installation uses npm lockfiles and hash-checked Python requirements. Python checks use `uv`, which installs Python 3.11.14 in user space. Install `uv` using its [official instructions](https://docs.astral.sh/uv/getting-started/installation/). `--node-only` on the fixture scripts intentionally excludes Python; it is not a complete check.
 
-Read `TEST.md`. It is the selected test’s instructions, not a record of a previous run. Create a trial branch from it before changing source:
+Read `TEST.md`. It is the selected test’s instructions, not a record of a previous run. Create a separate trial branch for each provider before changing source. This example uses Serverless Framework:
 
 ```sh
-git switch -c trial/lambda-five-001
+git switch -c trial/lambda-five-serverless-001
 ```
 
 ## 2. Prepare the provider
@@ -69,7 +69,7 @@ node scripts/bench.mjs run deploy-lambda-5-cli serverless \
 
 The cache command records this attempt's source commit and current owned cache paths. For packaging, use the clean-build and cached-source-edit commands in the selected branch's runbook instead. The runner requires the matching immutable cache record, saves native command logs, waits for runtime probes, and writes a result to `results/raw/`. It refuses an unqualified provider plan or dirty source tree. Run tool installation and baseline setup separately; the measured commands must not contain them.
 
-For Git push, configure the platform to follow the trial branch and commit first. Add `pipeline.branch`, `pipeline.sourceCommit` and `pipeline.configurationEvidence` to the qualification file. Also bind `pipeline.completion.argv` to a native observer that returns `{sourceCommit, status, runId}` for the pushed SHA. `status` is `pending`, `succeeded`, `failed` or `cancelled`. For GitHub Actions use `node scripts/github-run.mjs OWNER/REPO PUSHED_SHA`; hosted platforms need the corresponding qualified native deployment observer. The runner checks successful terminal completion after the readiness timer stops, so a failed or still-running workflow cannot qualify a result. A repeat push also needs the previous verified `previousReadyAt`. Then use the push runner:
+For Git push, configure each platform to follow only its own provider-specific trial branch and commit first. A push for another provider must not trigger this platform or change its caches. Add `pipeline.branch`, `pipeline.sourceCommit` and `pipeline.configurationEvidence` to the qualification file. Also bind `pipeline.completion.argv` to a native observer that returns `{sourceCommit, status, runId}` for the pushed SHA. `status` is `pending`, `succeeded`, `failed` or `cancelled`. For GitHub Actions use `node scripts/github-run.mjs OWNER/REPO PUSHED_SHA`; hosted platforms need the corresponding qualified native deployment observer. The runner checks successful terminal completion after the readiness timer stops, so a failed or still-running workflow cannot qualify a result. A repeat push also needs the previous verified `previousReadyAt`. Then use the push runner:
 
 ```sh
 node scripts/git-push.mjs deploy-lambda-5-git-cold serverless \

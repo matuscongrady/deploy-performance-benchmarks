@@ -8,7 +8,7 @@ This workflow covers candidate, Serverless Framework, SST and CDK. Render and Ra
 
 Follow [provider setup](provider-setup.md) and deploy the baseline outside the timer. Keep its application ID, stage and region fixed. Save the native stack name, each function name or service URL, its baseline business response and the cleanup commands.
 
-Prepare the same fixture and provider selected by the test branch. The workflow reads `.benchmark-test.json`; it refuses packaging tests and CLI-only deployment tests. Make the prescribed source edit on a `trial/...` branch derived from `test/...`.
+Prepare the same fixture and provider selected by the test branch. The workflow reads `.benchmark-test.json`; it refuses packaging tests and CLI-only deployment tests. Make the prescribed source edit on a provider-specific branch derived from `test/...`, for example `trial/lambda-five-serverless-001`. Use one trial branch per provider. Connect each managed platform only to its own branch, so pushes for another provider do not start builds or alter its caches.
 
 You can inspect the generated CI commands locally without installing tools or contacting AWS:
 
@@ -70,7 +70,7 @@ Start with the deployment qualification in [the runbook](runbook.md). In additio
     "accountId": "REPLACE_WITH_DISPOSABLE_ACCOUNT_ID"
   },
   "pipeline": {
-    "branch": "trial/lambda-five-001",
+    "branch": "trial/lambda-five-serverless-001",
     "sourceCommit": "REPLACE_WITH_FULL_COMMITTED_SOURCE_SHA",
     "configurationEvidence": "REPLACE_WITH_REVIEWED_WORKFLOW_AND_SETUP_REFERENCE",
     "workflowSha256": "REPLACE_WITH_SHA256_OF_DEPLOY_WORKFLOW"
