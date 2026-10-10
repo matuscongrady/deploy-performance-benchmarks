@@ -1,0 +1,8 @@
+{
+  "readiness": {
+    "type": "lambda-invocation",
+    "fixture": "lambda-1",
+    "manifest": "../../fixtures/manifest.json",
+    "sourceRoot": "../../fixtures/lambdas"
+  }
+}
