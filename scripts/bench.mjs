@@ -26,6 +26,7 @@ try {
     if(['unsupported','account-required'].includes(plan.availability)) throw Error(plan.reason||'Provider prerequisites are missing');
     const qualification=await json(flags.qualification||path.join(outputDir,'qualification.json'));
     if(qualification.environment?.region!==(flags.region||'eu-west-1'))throw Error('Qualification region differs from the generated project');
+    if(qualification.stage!==(flags.stage||'bench'))throw Error('Qualification stage differs from the generated project');
     if(qualification.appId!==appId)throw Error('Qualification application ID differs from --app-id');
     const {checkQualification}=await import('./qualification.mjs');
     await checkQualification(qualification,scenario,provider);
@@ -77,7 +78,7 @@ try {
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[];
     for(const log of logs) for(const file of [log.stdoutFile,log.stderrFile]) evidence.push({file:path.relative(root,file),sha256:await sha256(file)});
-    const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt:scenario.kind==='package'?commandFinishedAt:finishedAt,durationMs:scenario.kind==='package'?commandDurationMs:finish-start,commandDurationMs,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem(),...qualification.environment},cacheEvidence:qualification.cacheEvidence,settings:qualification.settings,evidence,commands:logs};
+    const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt:scenario.kind==='package'?commandFinishedAt:finishedAt,durationMs:scenario.kind==='package'?commandDurationMs:finish-start,commandDurationMs,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem(),...qualification.environment},cacheEvidence:qualification.cacheEvidence,settings:qualification.settings,evidence,commands:logs};
     validateRecord(record); await saveResult(resultFile,record);
     console.log(JSON.stringify(record,null,2)); if(status!=='passed') process.exitCode=1;
   } else if(operation==='record-managed') {
@@ -85,7 +86,7 @@ try {
     const scenario=await scenarioById(record.scenario);if(!scenario.providers.includes(record.provider))throw Error('Provider is not supported by this test');if(record.kind!==scenario.kind)throw Error('Record kind differs from selected test');safeId(record.provider);safeId(record.runId);
     if(!record.qualificationFile)throw Error('Imported results require a reviewed qualificationFile');
     const {checkQualification}=await import('./qualification.mjs');const qualification=await json(path.resolve(root,record.qualificationFile));await checkQualification(qualification,scenario,record.provider);
-    if(record.appId!==qualification.appId||record.environment.region!==qualification.environment.region||record.cacheEvidence.series!==qualification.cacheEvidence.series||record.toolVersion.reported!==qualification.toolVersion.reported||record.toolVersion.sha256!==qualification.toolVersion.sha256)throw Error('Imported application/version/environment/cache metadata differs from qualification');
+    if(record.stage!==qualification.stage||record.appId!==qualification.appId||record.environment.region!==qualification.environment.region||record.cacheEvidence.series!==qualification.cacheEvidence.series||record.toolVersion.reported!==qualification.toolVersion.reported||record.toolVersion.sha256!==qualification.toolVersion.sha256)throw Error('Imported application/version/environment/cache metadata differs from qualification');
     if(record.status==='passed'&&record.kind==='deploy'){
       for(const expectedProbe of qualification.probes){const observation=record.readiness.observations.find(o=>o.name===expectedProbe.name);const expected=structuredClone(expectedProbe.expected);if(expectedProbe.body&&Object.hasOwn(expectedProbe.body,'jobId'))delete expected.jobId;
         const contains=(actual,want)=>Array.isArray(want)?Array.isArray(actual)&&actual.length===want.length&&want.every((v,i)=>contains(actual[i],v)):want&&typeof want==='object'?actual&&Object.entries(want).every(([k,v])=>contains(actual[k],v)):actual===want;

@@ -6,7 +6,7 @@ Required fields:
 
 | Field | Meaning |
 | --- | --- |
-| `scenario`, `provider`, `runId` | Exact test, tool and unique attempt |
+| `scenario`, `provider`, `runId`, `appId`, `stage` | Exact test, tool, unique attempt and existing application/stage |
 | `sourceCommit` | Full 40-character Git SHA of the tested source |
 | `kind`, `status` | `package` or `deploy`; `passed`, `failed` or `unqualified` |
 | `startedAt`, `finishedAt`, `durationMs` | Observed timer boundaries and elapsed milliseconds |

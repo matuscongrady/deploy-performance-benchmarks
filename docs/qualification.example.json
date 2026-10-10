@@ -73,5 +73,6 @@
       }
     }
   ],
-  "appId": "commerce-node"
+  "appId": "commerce-node",
+  "stage": "bench"
 }

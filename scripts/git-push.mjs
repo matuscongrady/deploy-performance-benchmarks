@@ -37,7 +37,7 @@ try {
   let pipelineCompletion;
   if(statusValue==='passed'){try{const {waitForPipeline}=await import('./pipeline-completion.mjs');pipelineCompletion=await waitForPipeline(q.pipeline.completion,sourceCommit,{timeoutMs:q.timeoutMs||1800000});}catch(e){statusValue='failed';failure=e.message;}}
   const completionFile=path.join(dir,'pipeline-completion.json');const {save}=await import('./lib.mjs');await save(completionFile,{pipelineCompletion,failure});
-  const record={schemaVersion:1,kind:'deploy',scenario:id,provider,runId,appId:q.appId,status:statusValue,failure,sourceCommit,startedAt,finishedAt,durationMs,commandDurationMs:pushed.durationMs,baseline,readiness,reuse,toolVersion:q.toolVersion,environment:{runner:os.hostname(),...q.environment},settings:q.settings,cacheEvidence:q.cacheEvidence,pipeline:q.pipeline,pipelineCompletion,evidence:await Promise.all([stdoutFile,stderrFile,completionFile].map(async file=>({file:path.relative(root,file),sha256:await sha256(file)})))};
+  const record={schemaVersion:1,kind:'deploy',scenario:id,provider,runId,appId:q.appId,stage:q.stage,status:statusValue,failure,sourceCommit,startedAt,finishedAt,durationMs,commandDurationMs:pushed.durationMs,baseline,readiness,reuse,toolVersion:q.toolVersion,environment:{runner:os.hostname(),...q.environment},settings:q.settings,cacheEvidence:q.cacheEvidence,pipeline:q.pipeline,pipelineCompletion,evidence:await Promise.all([stdoutFile,stderrFile,completionFile].map(async file=>({file:path.relative(root,file),sha256:await sha256(file)})))};
   validateRecord(record);await saveResult(resultFile,record);
   console.log(JSON.stringify(record,null,2));if(statusValue!=='passed')process.exitCode=1;
 } catch(e){console.error(e.message);process.exitCode=1;}
