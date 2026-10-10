@@ -1,0 +1,28 @@
+{
+  "projectName": "bench-commerce-node",
+  "resources": {
+    "api": {
+      "type": "web-service",
+      "properties": {
+        "resources": {
+          "cpu": 0.25,
+          "memory": 512
+        },
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/containers/node/server.mjs",
+            "nodeVersion": 22,
+            "outputModuleFormat": "esm"
+          }
+        },
+        "environment": [
+          {
+            "name": "PORT",
+            "value": "3000"
+          }
+        ]
+      }
+    }
+  }
+}
