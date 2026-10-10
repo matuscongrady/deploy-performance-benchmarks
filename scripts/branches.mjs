@@ -17,10 +17,10 @@ function runbookForTest(scenario,{description,changed,direct,timing,cache}) {
   const isGit=scenario.journey.startsWith('git-');
   const isPackage=scenario.kind==='package';
   const isLambda=scenario.fixture.startsWith('lambda-');
-  const candidateQualification=provider==='candidate'?` --qualification ${qualification}`:'';
+  const qualifiedCache=` --qualification ${qualification}`;
   const localCommands=(runId,series,retainFrom)=>`\`\`\`sh
 node scripts/cache.mjs ${provider} --scenario ${scenario.id} \\
-  --app-id ${appId} --run-id ${runId} --series ${series}${candidateQualification}${retainFrom?` \\
+  --app-id ${appId} --run-id ${runId} --series ${series}${qualifiedCache}${retainFrom?` \\
   --retain-from ${retainFrom}`:''}
 node scripts/bench.mjs run ${scenario.id} ${provider} \\
   --app-id ${appId} --run-id ${runId} \\
@@ -29,11 +29,11 @@ node scripts/bench.mjs run ${scenario.id} ${provider} \\
 \`\`\``;
   const clean=isPackage?`## Measure the clean build first
 
-Keep the baseline source for this first attempt. Set the qualification's cacheEvidence.series to \`clean\`. The cache-control command resets only qualified owned output/cache paths; it keeps an immutable record of the action.
+Keep the baseline source for this first attempt. Set the qualification's cacheEvidence.series to \`clean\`. ${isLambda?'The cache-control command resets only qualified owned output/cache paths; it keeps an immutable record of the action.':'First qualify the native builder’s no-cache control or an isolated clean builder. Save the actual invocation and its observed cache decision. Set cacheControl.localPaths to the builder’s qualified output/cache paths and cacheControl.nativeClean to its verified environment control when needed. Deleting ZIP or synth output directories does not disable Docker layers. Export the qualified control before the commands below; do not use the diagnostic Docker flag as proof of a native builder setting.'}
 
 ${localCommands('clean-001','clean')}
 
-Complete this passed clean-build attempt before editing the source. Its raw result and retained cache/artifact files are prerequisites for the cached rebuild.
+Complete this passed clean-build attempt before editing the source. Its raw result and retained cache/artifact files are prerequisites for the cached rebuild. ${isLambda?'':'The native compressed image identity/size and runnable business output must be observed before accepting it. If no native clean control or complete artifact proof is available, this series is blocked.'}
 
 `:'';
   const setup=isPackage
@@ -48,11 +48,24 @@ node scripts/git-push.mjs ${scenario.id} ${provider} \\
 \`\`\`
 
 The runner starts immediately before the push and stops at verified business readiness. It then checks native pipeline success; failures are retained and cannot qualify. CI/hosted cache evidence is bound to the observed completed pipeline, rather than a local cache-control file.`
-    : `${isPackage?'Set the qualification\'s cacheEvidence.series to `cached-source-edit`. The retained result must be the passed clean attempt from the preceding source commit.':'Set the qualification\'s cacheEvidence.series to `cli-existing-cache`. This captures present local cache paths without deleting them or claiming a cache hit.'}
+    : `${isPackage?"Set the qualification's cacheEvidence.series to `cached-source-edit`. The retained result must be the passed clean attempt from the preceding source commit.":"Set the qualification's cacheEvidence.series to `cli-existing-cache`. This captures present local cache paths without deleting them or claiming a cache hit."}${isPackage&&!isLambda?' Turn off the clean-only native control, keep the same builder/base-image state and retain its qualified caches. Record actual layer reuse or misses and the new complete image identity/size. A retained directory does not by itself prove Docker reuse.':''}
 
 ${isPackage?localCommands('edited-001','cached-source-edit',`results/raw/clean-001-${provider}.json`):localCommands('trial-001','cli-existing-cache')}
 
 The runner executes only the selected native ${isPackage?'packaging/build':'update'} command and retains its logs and result. Tool installation and baseline setup stay outside this interval.`;
+  const managed=isPackage&&!isLambda&&scenario.providers.some(p=>['render','ravion','heroku'].includes(p))?`## Packaging on a managed builder
+
+${scenario.providers.filter(p=>['render','ravion','heroku'].includes(p)).join(', ')} use their native account-connected builders. The local cache and run examples above do not apply to these platforms. Configure the selected source directory and native builder, then run the baseline and edited builds through the platform. Keep its build ID, exact source commit, actual cache-control request, restore/hit/miss observations and logs. Use build-phase start/end events, excluding queueing, checkout and rollout. A reset that starts a build is part of that observed build, rather than a separate invisible reset. If native clean or retained-cache state cannot be established, leave that series unmeasured.
+
+Record the complete native output and compressed size only when observable; slug and OCI formats stay separate. Verify the deployed business response to establish that this output contains the edited code. Assemble the observed result using [result data](results.md), then validate it:
+
+\`\`\`sh
+node scripts/bench.mjs record-managed .work/observed-build.json
+\`\`\`
+
+Missing account access, build events or artifact proof blocks the row. A local Docker build or a full deployment duration cannot replace the native packaging measurement.
+
+`:'';
   return `# Run: ${scenario.title}
 
 ${description} ${changed}
@@ -105,7 +118,7 @@ ${execute}
 
 ${cache}
 
-Follow [measurement rules](methodology.md) and [cache controls](cache-controls.md). Record ten attempts, including errors, and use a unique run ID for each. [Result data](results.md) describes raw evidence and compressed artifact sizes.
+${managed}Follow [measurement rules](methodology.md) and [cache controls](cache-controls.md). Record ten attempts, including errors, and use a unique run ID for each. [Result data](results.md) describes raw evidence and compressed artifact sizes.
 
 ## Finish the series
 
@@ -156,7 +169,10 @@ export async function filesForTest(base,scenario) {
   for(const provider of scenario.providers.filter(p=>['serverless','sst','cdk'].includes(p)))keepPrefix(`providers/tools/${provider}/`);
   for(const file of ['.gitignore','docs/methodology.md','docs/cache-controls.md','docs/results.md','docs/runbook.md','docs/provider-setup.md','docs/qualification.example.json'])keep(file);
   if(scenario.journey.startsWith('git-')){keep('.github/workflows/deploy-benchmark.yml');keep('docs/ci-setup.md');}
-  else {files.delete('scripts/ci.mjs');files.delete('scripts/git-push.mjs');}
+  else {
+    files.delete('scripts/ci.mjs');files.delete('scripts/git-push.mjs');
+    files.set('docs/cache-controls.md',files.get('docs/cache-controls.md').toString().replace('[CI setup](ci-setup.md)','[CI setup on main](https://github.com/matuscongrady/deploy-performance-benchmarks/blob/main/docs/ci-setup.md)'));
+  }
   // The branch contains one scenario. main remains the owner of the complete catalogue.
   files.set('scenarios/index.json',stringify({schemaVersion:1,scenarios:[scenario]}));
   files.set('.benchmark-test.json',stringify({scenario:scenario.id,baseCommit:base}));
