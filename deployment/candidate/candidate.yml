@@ -1,0 +1,120 @@
+{
+  "projectName": "bench-commerce-five-services",
+  "resources": {
+    "api": {
+      "type": "web-service",
+      "properties": {
+        "resources": {
+          "cpu": 0.25,
+          "memory": 512
+        },
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/containers/five-services/api/server.mjs",
+            "nodeVersion": 22,
+            "outputModuleFormat": "esm"
+          }
+        },
+        "environment": [
+          {
+            "name": "PORT",
+            "value": "3000"
+          }
+        ]
+      }
+    },
+    "reporting": {
+      "type": "web-service",
+      "properties": {
+        "resources": {
+          "cpu": 0.25,
+          "memory": 512
+        },
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/containers/five-services/reporting/server.mjs",
+            "nodeVersion": 22,
+            "outputModuleFormat": "esm"
+          }
+        },
+        "environment": [
+          {
+            "name": "PORT",
+            "value": "3000"
+          }
+        ]
+      }
+    },
+    "inventory": {
+      "type": "web-service",
+      "properties": {
+        "resources": {
+          "cpu": 0.25,
+          "memory": 512
+        },
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/containers/five-services/inventory/server.mjs",
+            "nodeVersion": 22,
+            "outputModuleFormat": "esm"
+          }
+        },
+        "environment": [
+          {
+            "name": "PORT",
+            "value": "3000"
+          }
+        ]
+      }
+    },
+    "webhooks": {
+      "type": "web-service",
+      "properties": {
+        "resources": {
+          "cpu": 0.25,
+          "memory": 512
+        },
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/containers/five-services/webhooks/server.mjs",
+            "nodeVersion": 22,
+            "outputModuleFormat": "esm"
+          }
+        },
+        "environment": [
+          {
+            "name": "PORT",
+            "value": "3000"
+          }
+        ]
+      }
+    },
+    "notifications": {
+      "type": "web-service",
+      "properties": {
+        "resources": {
+          "cpu": 0.25,
+          "memory": 512
+        },
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/containers/five-services/notifications/server.mjs",
+            "nodeVersion": 22,
+            "outputModuleFormat": "esm"
+          }
+        },
+        "environment": [
+          {
+            "name": "PORT",
+            "value": "3000"
+          }
+        ]
+      }
+    }
+  }
+}
