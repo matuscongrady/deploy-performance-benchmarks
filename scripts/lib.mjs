@@ -146,6 +146,10 @@ export function validateRecord(r) {
     if(r.kind==='package') {
       if(r.artifacts?.complete!==true||!Number.isSafeInteger(r.artifacts.bytes)||r.artifacts.bytes<=0||!['lambda-zip','oci-compressed','heroku-slug'].includes(r.artifacts.format))throw Error('Packaging needs complete deployable artifacts');
       if(r.artifacts.format==='oci-compressed'){const blobs=r.artifacts.blobs;if(!Array.isArray(blobs)||!blobs.length||new Set(blobs.map(b=>b.digest)).size!==blobs.length||blobs.some(b=>!/^sha256:[a-f0-9]{64}$/.test(b.digest)||!Number.isSafeInteger(b.size)||b.size<=0)||blobs.reduce((sum,b)=>sum+b.size,0)!==r.artifacts.bytes||!r.artifacts.manifestDigest)throw Error('OCI size requires a complete compressed blob manifest');}
+      if(r.artifacts.format==='oci-compressed') {
+        const native=r.artifacts.nativeBuild;
+        if(!native||native.sourceCommit!==r.sourceCommit||native.runId!==r.runId||native.provider!==r.provider||!/^sha256:[a-f0-9]{64}$/.test(native.imageId||'')||!r.artifacts.blobs.some(b=>b.digest===native.imageId&&['application/vnd.oci.image.config.v1+json','application/vnd.docker.container.image.v1+json'].includes(b.mediaType)))throw Error('OCI artifacts require a current source/run/provider build identity matching the image config blob');
+      }
       const expectedCount=Number(r.scenario.match(/lambda-(1|5|25)$/)?.[1]);if(expectedCount) {const functions=r.artifacts.files?.filter(f=>f.role==='function');if(r.artifacts.format!=='lambda-zip'||functions?.length!==expectedCount)throw Error('Every selected function ZIP is required');const probes=r.artifacts.businessVerification?.completeZipBusinessProbes;if(!Array.isArray(probes)||probes.length!==expectedCount||new Set(probes.map(p=>p.name)).size!==expectedCount||probes.some(p=>!p.revision))throw Error('Every complete Lambda ZIP needs a business/revision verification');}
     }
   }

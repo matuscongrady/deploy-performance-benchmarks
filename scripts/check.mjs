@@ -105,6 +105,10 @@ try {
   const fiveSst={...sstRecord,scenario:'deploy-five-services-cli',cacheEvidence:{...sstRecord.cacheEvidence,scenario:'deploy-five-services-cli'},readiness:fiveReadiness,reuse:{verified:true,observations:old.map(s=>({name:s.name,unchanged:true}))},rolloutAdmission:{...sstRecord.rolloutAdmission,observations:['api','reporting','notifications'].map(name=>({...sstRecord.rolloutAdmission.observations[0],name})),postRolloutReadiness:fiveReadiness}};
   validateRecord(fiveSst);
   assert.throws(()=>validateRecord({...fiveSst,rolloutAdmission:{...fiveSst.rolloutAdmission,observations:fiveSst.rolloutAdmission.observations.map(o=>({...o,name:'api'}))}}),/every changed ECS/);
+  const ociArtifacts={...compressedImage(manifest,JSON.stringify(manifest)),nativeBuild:{sourceCommit:previous.sourceCommit,runId:previous.runId,provider:previous.provider,imageId:manifest.config.digest}};
+  const ociRecord={...previous,kind:'package',scenario:'package-node',cacheEvidence:{...previous.cacheEvidence,scenario:'package-node'},artifacts:ociArtifacts};
+  validateRecord(ociRecord);
+  for(const nativeBuild of [undefined,{...ociArtifacts.nativeBuild,sourceCommit:'c'.repeat(40)},{...ociArtifacts.nativeBuild,runId:'wrong-attempt'},{...ociArtifacts.nativeBuild,provider:'sst'},{...ociArtifacts.nativeBuild,imageId:'sha256:'+'f'.repeat(64)}])assert.throws(()=>validateRecord({...ociRecord,artifacts:{...ociArtifacts,nativeBuild}}),/current source\/run\/provider build identity/);
 
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const url=`http://127.0.0.1:${server.address().port}/business`;
