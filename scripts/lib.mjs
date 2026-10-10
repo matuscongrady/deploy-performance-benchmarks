@@ -56,6 +56,7 @@ export async function readCacheEvidence(file,expected,{beforeTimer=false,base=ro
     const original=path.resolve(base,proof.nativeEvidence.file);if(await sha256(original)!==proof.nativeEvidence.sha256)throw Error('Native cache observer evidence checksum mismatch');
     const observation=await json(original);validateNativeCacheObservation(observation,expected,proof.completion,proof.mode);
     if(JSON.stringify(proof.runner)!==JSON.stringify(observation.runner)||JSON.stringify(proof.cache)!==JSON.stringify(observation.cache))throw Error('Bound cache/runner observations differ from native evidence');
+    if(JSON.stringify(proof.rolloutAdmission)!==JSON.stringify(observation.rolloutAdmission))throw Error('Bound rollout admission differs from native evidence');
   }
   return {...proof,proofFile:path.relative(base,absolute),proofSHA:await sha256(absolute)};
 }
@@ -108,7 +109,7 @@ export async function bindGitCacheEvidence({q,identity,completion,runCommand=com
     observation=JSON.parse(result.stdout);nativeFile=path.join(directory,'native-hosted.json');await saveResult(nativeFile,observation);
   }
   validateNativeCacheObservation(observation,identity,completion,mode);
-  const proof={schemaVersion:1,mode,...identity,capturedAt:new Date().toISOString(),runner:observation.runner,cache:observation.cache,completion,nativeEvidence:{file:path.relative(base,nativeFile),sha256:await sha256(nativeFile)}};
+  const proof={schemaVersion:1,mode,...identity,capturedAt:new Date().toISOString(),runner:observation.runner,cache:observation.cache,rolloutAdmission:observation.rolloutAdmission,completion,nativeEvidence:{file:path.relative(base,nativeFile),sha256:await sha256(nativeFile)}};
   await saveResult(proofFile,proof);return await readCacheEvidence(proofFile,identity,{base});
 }
 export async function finishGitVerification({wait,capture,compare,before}) {
@@ -134,6 +135,13 @@ export function validateRecord(r) {
       const expectedCount=r.scenario.includes('five-services')?5:Number(r.scenario.match(/lambda-(1|5|25)-/)?.[1]||1);
       const observations=r.readiness?.observations;
       if(r.readiness?.verified!==true||!Array.isArray(observations)||observations.length!==expectedCount||new Set(observations.map(o=>o.name)).size!==expectedCount||observations.some(o=>!o.expected?.revision||o.observed?.revision!==o.expected.revision)) throw Error('Deployment needs verified business/revision observations for every component');
+      if(r.provider==='sst'&&!r.scenario.includes('lambda-')) {
+        const admission=r.rolloutAdmission,states=admission?.observations,changedNames=r.scenario.includes('five-services')?['api','reporting','notifications']:['api'];
+        if(admission?.verified!==true||admission.outsideReadinessTimer!==true||!Array.isArray(states)||states.length!==changedNames.length||new Set(states.map(o=>o.name)).size!==changedNames.length||changedNames.some(name=>!states.some(o=>o.name===name))||states.some(o=>o.rolloutState!=='COMPLETED'||!o.serviceArn||!o.beforeDeploymentId||!o.deploymentId||o.beforeDeploymentId===o.deploymentId||!o.taskDefinition))throw Error('SST containers require successful post-timer admission of every changed ECS service');
+        const after=admission.postRolloutReadiness?.observations;
+        if(admission.postRolloutReadiness?.verified!==true||!Array.isArray(after)||after.length!==expectedCount||new Set(after.map(o=>o.name)).size!==expectedCount||observations.some(before=>!after.some(o=>o.name===before.name&&o.observed?.revision===before.expected.revision)))throw Error('SST containers require verified business revisions after successful rollout');
+        if(r.scenario.includes('-git-')&&JSON.stringify(admission)!==JSON.stringify(r.cacheEvidence.rolloutAdmission))throw Error('Git rollout admission differs from the immutable native CI proof');
+      }
     }
     if(r.kind==='package') {
       if(r.artifacts?.complete!==true||!Number.isSafeInteger(r.artifacts.bytes)||r.artifacts.bytes<=0||!['lambda-zip','oci-compressed','heroku-slug'].includes(r.artifacts.format))throw Error('Packaging needs complete deployable artifacts');

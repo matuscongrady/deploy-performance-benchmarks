@@ -21,7 +21,7 @@ const attempted={schemaVersion:1,kind:'deploy',status:'passed',scenario:'deploy-
 assert.throws(()=>validateRecord(attempted),/unchanged native component|observations/);
 if((await scenarios()).some(s=>s.id==='package-lambda-25'))await assert.rejects(checkQualification({scenario:'package-lambda-25',provider:'cdk',approved:true,toolVersion:{reported:'test'},environment:{region:'eu-west-1'},cacheEvidence:{series:'clean'},qualificationEvidence:[{}],artifacts:{qualified:true,format:'lambda-zip',functionCount:1,files:[{name:'report',path:'report.zip'}]}},await (await import('./lib.mjs')).scenarioById('package-lambda-25'),'cdk'),/every selected/);
 const old=[{name:'inventory',deploymentId:'same',configurationHash:'same',artifactIds:['digest']},{name:'webhooks',deploymentId:'same',configurationHash:'same',artifactIds:['digest']}];assert.equal(compareUnchanged(old,old).verified,true);assert.throws(()=>compareUnchanged(old,old.map(s=>({...s,deploymentId:'replaced'}))),/replaced/);
-const blob=(n,size,mediaType)=>({digest:'sha256:'+String(n).repeat(64),size,mediaType});const manifest={config:blob(1,100,'application/vnd.oci.image.config.v1+json'),layers:[blob(2,1000,'application/vnd.oci.image.layer.v1.tar+gzip')]};assert.equal(compressedImage(manifest,JSON.stringify(manifest)).bytes,1100);assert.throws(()=>compressedImage({...manifest,layers:[blob(2,1000,'application/vnd.oci.image.layer.v1.tar')]},'raw'),/compressed/);
+const blob=(n,size,mediaType)=>({digest:'sha256:'+String(n).repeat(64),size,mediaType});const manifest={schemaVersion:2,config:blob(1,100,'application/vnd.oci.image.config.v1+json'),layers:[blob(2,1000,'application/vnd.oci.image.layer.v1.tar+gzip')]};assert.equal(compressedImage(manifest,JSON.stringify(manifest)).bytes,1100);assert.throws(()=>compressedImage({...manifest,layers:[blob(2,1000,'application/vnd.oci.image.layer.v1.tar')]},'raw'),/compressed/);
 
 const pipelineState=status=>({argv:[process.execPath,'--input-type=module','-e','console.log(JSON.stringify('+JSON.stringify({sourceCommit:'a'.repeat(40),status,runId:'native-run-1'})+'))']});
 assert.equal((await waitForPipeline(pipelineState('succeeded'),'a'.repeat(40),{timeoutMs:3000})).verified,true);
@@ -88,10 +88,23 @@ try {
   assert.throws(()=>validateNativeCacheObservation({...hosted,cache:{restored:'false'}},hostedIdentity,completion,'hosted'),/observed restored boolean/);
   const repeatIdentity={...hostedIdentity,scenario:'deploy-node-git-repeat'};
   for(const restored of [true,false])validateNativeCacheObservation({...hosted,scenario:repeatIdentity.scenario,cache:{restored}},repeatIdentity,completion,'hosted');
+  const alteredProof=path.join(temp,'altered-ci-proof.json');await saveResult(alteredProof,{...ciProof,rolloutAdmission:{verified:true}});
+  await assert.rejects(readCacheEvidence(alteredProof,ciIdentity,{base:temp}),/rollout admission differs/);
   await writeFile(path.resolve(temp,ciProof.nativeEvidence.file),JSON.stringify({...ci,status:'failed'}));
   await assert.rejects(readCacheEvidence(ciProof.proofFile,ciIdentity,{base:temp}),/checksum mismatch/);
   assert.throws(()=>validateRecord({...previous,cacheEvidence:{...checked,runId:'another-run'}}),/runId/);
   assert.throws(()=>validateRecord({...previous,evidence:[]}),/source evidence/);
+  const sstRecord={...previous,provider:'sst',scenario:'deploy-node-cli',cacheEvidence:{...checked,provider:'sst'},rolloutAdmission:{verified:true,outsideReadinessTimer:true,observations:[{name:'api',rolloutState:'COMPLETED',serviceArn:'service-api',beforeDeploymentId:'old-api',deploymentId:'new-api',taskDefinition:'new-task'}],postRolloutReadiness:previous.readiness}};
+  validateRecord(sstRecord);
+  assert.throws(()=>validateRecord({...sstRecord,rolloutAdmission:undefined}),/every changed ECS/);
+  assert.throws(()=>validateRecord({...sstRecord,rolloutAdmission:{...sstRecord.rolloutAdmission,observations:[{...sstRecord.rolloutAdmission.observations[0],beforeDeploymentId:'new-api'}]}}),/every changed ECS/);
+  assert.throws(()=>validateRecord({...sstRecord,rolloutAdmission:{...sstRecord.rolloutAdmission,observations:[{...sstRecord.rolloutAdmission.observations[0],rolloutState:'FAILED'}]}}),/every changed ECS/);
+  assert.throws(()=>validateRecord({...sstRecord,rolloutAdmission:{...sstRecord.rolloutAdmission,postRolloutReadiness:{verified:true,observations:[{name:'api',observed:{revision:'rolled-back'}}]}}}),/after successful rollout/);
+  const fiveNames=['api','reporting','inventory','webhooks','notifications'];
+  const fiveReadiness={verified:true,observations:fiveNames.map(name=>({name,expected:{revision:name},observed:{revision:name}}))};
+  const fiveSst={...sstRecord,scenario:'deploy-five-services-cli',cacheEvidence:{...sstRecord.cacheEvidence,scenario:'deploy-five-services-cli'},readiness:fiveReadiness,reuse:{verified:true,observations:old.map(s=>({name:s.name,unchanged:true}))},rolloutAdmission:{...sstRecord.rolloutAdmission,observations:['api','reporting','notifications'].map(name=>({...sstRecord.rolloutAdmission.observations[0],name})),postRolloutReadiness:fiveReadiness}};
+  validateRecord(fiveSst);
+  assert.throws(()=>validateRecord({...fiveSst,rolloutAdmission:{...fiveSst.rolloutAdmission,observations:fiveSst.rolloutAdmission.observations.map(o=>({...o,name:'api'}))}}),/every changed ECS/);
 
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const url=`http://127.0.0.1:${server.address().port}/business`;
@@ -101,5 +114,6 @@ try {
   await assert.rejects(collectArtifacts({qualified:true,format:'lambda-zip',functionCount:1,files:[{path:'bundle.js'}]},temp),/actual ZIP/);
   await assert.rejects(collectArtifacts({qualified:true,format:'oci-compressed',files:[{path:'bundle.js'}]},temp),/qualified complete/);
 } finally {await new Promise(resolve=>server.close(resolve));await rm(temp,{recursive:true,force:true});}
+for(const file of ['scripts/check-oci.mjs','scripts/check-sst-rollout.mjs']) {const checked=spawnSync(process.execPath,[file],{cwd:root,stdio:'inherit'});if(checked.error)throw checked.error;if(checked.status!==0)process.exit(checked.status||1);}
 const check=spawnSync(process.execPath,['fixtures/check.mjs',...process.argv.slice(2)],{cwd:root,stdio:'inherit'});if(check.error)throw check.error;if(check.status!==0)process.exit(check.status||1);
 console.log('Scenario edits, business readiness and artifact rejection checks passed. No cloud requests.');
