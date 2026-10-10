@@ -117,6 +117,32 @@ export async function finishGitVerification({wait,capture,compare,before}) {
   const reuse=capture?compare(before,await capture()):undefined;
   return {pipelineCompletion,reuse};
 }
+function validateProviderNativePackage(record) {
+  const a=record.artifacts,n=a?.nativeBuild;
+  if(record.kind!=='package'||!['package-node','package-python'].includes(record.scenario)||!['render','ravion','heroku'].includes(record.provider)||a?.name!=='api'||a.complete!==true||a.bytes!==null||a.sizeAvailable!==false)throw Error('Provider-native timing is only available for the selected managed container API with unavailable size');
+  for(const key of ['runId','sourceCommit','scenario','appId','provider'])if(!record[key]||n?.[key]!==record[key])throw Error('Provider-native build differs from current '+key);
+  if(typeof n.nativeBuildId!=='string'||!n.nativeBuildId.trim()||!n.evidenceFile||!/^[a-f0-9]{64}$/.test(n.evidenceSHA||'')||!record.evidence?.some(e=>e.file===n.evidenceFile&&e.sha256===n.evidenceSHA))throw Error('Provider-native build needs its ID and exact retained evidence binding');
+  const phase=n.phase;
+  if(phase?.status!=='succeeded'||phase.startedAt!==record.startedAt||phase.finishedAt!==record.finishedAt)throw Error('Provider-native timing must be the successful native build phase');
+  const business=a.businessVerification,observations=business?.observations;
+  if(business?.verified!==true||business.nativeBuildId!==n.nativeBuildId||business.sourceCommit!==record.sourceCommit||!Array.isArray(observations)||observations.length!==1||observations[0].name!=='api')throw Error('Provider-native build needs current business verification of the selected API');
+  for(const o of observations){if(!o.expected?.revision||!o.observed||Object.keys(o.expected).length<2||!Number.isFinite(Date.parse(o.observedAt))||Date.parse(o.observedAt)<Date.parse(phase.finishedAt)||Object.entries(o.expected).some(([key,value])=>JSON.stringify(o.observed[key])!==JSON.stringify(value)))throw Error('Provider-native build needs matching full business/revision observations after the build');}
+}
+export async function verifyImportedNativePackage(record,{base=root}={}) {
+  if(record.artifacts?.format!=='provider-native')return;
+  validateRecord(record);
+  if(record.status!=='passed')throw Error('Provider-native proof admission requires a passed record');
+  const native=record.artifacts.nativeBuild,file=path.resolve(base,native.evidenceFile);
+  if(await sha256(file)!==native.evidenceSHA)throw Error('Provider-native evidence checksum mismatch');
+  const proof=await json(file);
+  if(proof.schemaVersion!==1)throw Error('Invalid provider-native evidence schema');
+  for(const key of ['runId','sourceCommit','scenario','appId','provider','nativeBuildId'])if(proof[key]!==native[key])throw Error('Retained provider-native proof differs from current '+key);
+  if(JSON.stringify(proof.buildPhase)!==JSON.stringify(native.phase)||JSON.stringify(proof.businessVerification)!==JSON.stringify(record.artifacts.businessVerification))throw Error('Provider-native phase/business summary differs from retained raw proof');
+  const completion=proof.nativeCompletion;
+  if(completion?.status!=='succeeded'||completion.nativeBuildId!==native.nativeBuildId||completion.sourceCommit!==record.sourceCommit||!Number.isFinite(Date.parse(completion.finishedAt))||Date.parse(completion.finishedAt)<Date.parse(native.phase.finishedAt))throw Error('Provider-native build requires successful native completion of the same build/source');
+  if(record.artifacts.businessVerification.observations.some(o=>Date.parse(o.observedAt)<Date.parse(completion.finishedAt)))throw Error('Provider-native business checks must follow native completion');
+  return {verified:true,nativeBuildId:native.nativeBuildId,sizeAvailable:false};
+}
 export function validateRecord(r) {
   if(r.schemaVersion!==1||!['package','deploy'].includes(r.kind)||!['passed','failed','unqualified'].includes(r.status)) throw Error('Invalid result schema/kind/status');
   for(const key of ['scenario','provider','runId','sourceCommit','startedAt','finishedAt']) if(typeof r[key]!=='string'||!r[key]) throw Error('Missing '+key);
@@ -144,7 +170,8 @@ export function validateRecord(r) {
       }
     }
     if(r.kind==='package') {
-      if(r.artifacts?.complete!==true||!Number.isSafeInteger(r.artifacts.bytes)||r.artifacts.bytes<=0||!['lambda-zip','oci-compressed','heroku-slug'].includes(r.artifacts.format))throw Error('Packaging needs complete deployable artifacts');
+      if(r.artifacts?.format==='provider-native')validateProviderNativePackage(r);
+      else if(r.artifacts?.complete!==true||!Number.isSafeInteger(r.artifacts.bytes)||r.artifacts.bytes<=0||!['lambda-zip','oci-compressed','heroku-slug'].includes(r.artifacts.format))throw Error('Packaging needs complete deployable artifacts');
       if(r.artifacts.format==='oci-compressed'){const blobs=r.artifacts.blobs;if(!Array.isArray(blobs)||!blobs.length||new Set(blobs.map(b=>b.digest)).size!==blobs.length||blobs.some(b=>!/^sha256:[a-f0-9]{64}$/.test(b.digest)||!Number.isSafeInteger(b.size)||b.size<=0)||blobs.reduce((sum,b)=>sum+b.size,0)!==r.artifacts.bytes||!r.artifacts.manifestDigest)throw Error('OCI size requires a complete compressed blob manifest');}
       if(r.artifacts.format==='oci-compressed') {
         const native=r.artifacts.nativeBuild;

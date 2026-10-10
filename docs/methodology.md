@@ -10,6 +10,52 @@ For Lambda size, count every compressed function ZIP and every required shared l
 
 For containers, use the platform’s usual builder: the candidate’s automatic packaging, Ravion Railpack, Render’s native runtime, Heroku buildpacks, and SST/CDK’s built-in Docker image builds. SST/CDK get normal application Dockerfiles; the candidate does not use them. Record the builder/version, build commands, plan, CPU/memory, region, language runtime and output format. OCI compressed image bytes, uncompressed image size and Heroku classic slugs are different measures. Compare only identical formats. An inaccessible artifact has no size result; it does not have size zero.
 
+### Managed build timing when artifact size is unavailable
+
+Render, Ravion or Heroku may expose a successful native build phase without exposing artifact bytes. For the single Node.js or Python API packaging test, admit its time separately as `format: "provider-native"`, `name: "api"`, `complete: true`, `bytes: null` and `sizeAvailable: false`. This format is unavailable for Lambda packaging and local Docker builders. Ten qualified timing attempts can support a speed chart; they cannot support a size chart. Size summaries remain `null`, with zero measured size samples and `sizePublishable: false`.
+
+The qualification must identify the managed native observer and include `artifacts.businessExpected`: the fixture's complete expected business response, including the current source revision. The observer must obtain source identity, native build ID, phase timestamps and successful native completion from the platform's actual build records. A static qualification declaration is not per-attempt evidence. An observer that cannot establish these facts remains a qualification prerequisite; do not estimate a build phase from total deployment duration.
+
+Save the observer's original JSON and its SHA-256 in the result's `evidence` list. The artifact's `nativeBuild` references that same file as `evidenceFile` and `evidenceSHA`, and includes `runId`, `sourceCommit`, `scenario`, `appId`, `provider`, `nativeBuildId` and `phase`. `phase` contains `startedAt`, `finishedAt` and `status: "succeeded"`; those timestamps must equal the packaging record's timer boundaries. Dependency installation performed by the native builder stays inside that phase. Scheduling, deployment and business verification stay outside it.
+
+The original observer JSON has this structure (replace the illustrative identity, timestamps and response with actual observations):
+
+```json
+{
+  "schemaVersion": 1,
+  "runId": "native-001",
+  "sourceCommit": "<full current source SHA>",
+  "scenario": "package-node",
+  "appId": "example-api",
+  "provider": "render",
+  "nativeBuildId": "<observed native build ID>",
+  "buildPhase": {
+    "startedAt": "<native build start>",
+    "finishedAt": "<native build completion>",
+    "status": "succeeded"
+  },
+  "nativeCompletion": {
+    "nativeBuildId": "<same native build ID>",
+    "sourceCommit": "<same source SHA>",
+    "status": "succeeded",
+    "finishedAt": "<successful native completion>"
+  },
+  "businessVerification": {
+    "verified": true,
+    "nativeBuildId": "<same native build ID>",
+    "sourceCommit": "<same source SHA>",
+    "observations": [{
+      "name": "api",
+      "observedAt": "<probe time after native completion>",
+      "expected": {"revision": "<current revision>", "<business fields>": "<fixture expectations>"},
+      "observed": {"revision": "<current revision>", "<business fields>": "<actual response>"}
+    }]
+  }
+}
+```
+
+Copy `businessVerification` exactly into the artifact summary and `buildPhase` into `nativeBuild.phase`. Import rereads the checksum-bound original JSON, compares all identities and summaries, requires successful completion of the same build/source, and verifies business observations occur after completion. It also checks the observed response against the qualification's full fixture expectations. A native success message alone, a previous revision's response or a build ID copied from another attempt does not qualify.
+
 ## Deployment
 
 Create the application before measurement. Verify its baseline business output and source revision. Account setup, initial infrastructure provisioning, build-tool installation for local CLI tests and credentials setup are untimed. Keep the timed source edit and the final source commit in the record.
