@@ -188,7 +188,7 @@ export async function reviewFiles({provider,fixture,repoRoot,runId}) {
   if(!lambda&&['sst','cdk'].includes(provider))text=provider==='sst'?text.replaceAll("dockerfile:'Dockerfile'", "dockerfile:'Dockerfile.sst'"):text.replaceAll(')),containerPort:3000',"),{file:'Dockerfile.cdk'}),containerPort:3000");
   files[`${folder}/${n}`]=text;
  }
- if(!lambda&&['sst','cdk'].includes(provider))for(const svc of services)files[`${svc.buildContext}/Dockerfile.${provider}`]=await readFile(join(generated,'app',svc.name,'Dockerfile'),'utf8');
+ if(!lambda&&['sst','cdk'].includes(provider))for(const svc of services){files[`${svc.buildContext}/Dockerfile.${provider}`]=await readFile(join(generated,'app',svc.name,'Dockerfile'),'utf8');files[`${svc.buildContext}/.dockerignore`]=await readFile(join(generated,'app',svc.name,'.dockerignore'),'utf8');}
  if(lambda&&['sst','cdk'].includes(provider)){
   const readiness={...plan.readiness,manifest:'../../fixtures/manifest.json',sourceRoot:source};delete readiness.expectedOutputsFile;
   files[`${folder}/provider-plan.json`]=json({readiness});
