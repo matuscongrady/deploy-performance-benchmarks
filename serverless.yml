@@ -1,0 +1,68 @@
+{
+  "frameworkVersion": "4.43.0",
+  "service": "bench-commerce-lambda-5",
+  "provider": {
+    "name": "aws",
+    "runtime": "nodejs22.x",
+    "region": "eu-west-1",
+    "stage": "bench",
+    "memorySize": 512,
+    "timeout": 30
+  },
+  "package": {
+    "individually": true,
+    "patterns": [
+      "!app/check.mjs",
+      "!app/workloads.json",
+      "!app/package-lock.json",
+      "!provider-plan.json",
+      "!manifest.json",
+      "!plan.json",
+      "!qualification.json",
+      "!qualifications.json",
+      "!native-outputs.json",
+      "!**/*.log",
+      "!**/evidence/**",
+      "!deployment/**",
+      "!providers/**",
+      "!docs/**",
+      "!scripts/**",
+      "!scenarios/**",
+      "!.work/**",
+      "!results/**"
+    ]
+  },
+  "functions": {
+    "report": {
+      "handler": "fixtures/lambdas/handlers/report.handler",
+      "name": "bench-commerce-lambda-5-bench-report"
+    },
+    "product-lookup": {
+      "handler": "fixtures/lambdas/handlers/product-lookup.handler",
+      "name": "bench-commerce-lambda-5-bench-product-lookup"
+    },
+    "cart-pricing": {
+      "handler": "fixtures/lambdas/handlers/cart-pricing.handler",
+      "name": "bench-commerce-lambda-5-bench-cart-pricing"
+    },
+    "create-order": {
+      "handler": "fixtures/lambdas/handlers/create-order.handler",
+      "name": "bench-commerce-lambda-5-bench-create-order"
+    },
+    "notification": {
+      "handler": "fixtures/lambdas/handlers/notification.handler",
+      "name": "bench-commerce-lambda-5-bench-notification"
+    }
+  },
+  "build": {
+    "esbuild": {
+      "minify": true,
+      "sourcemap": false,
+      "external": [
+        "pdfkit",
+        "exceljs",
+        "docx"
+      ]
+    }
+  }
+}

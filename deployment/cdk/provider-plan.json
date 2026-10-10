@@ -1,0 +1,30 @@
+{
+  "readiness": {
+    "type": "lambda-invocation",
+    "fixture": "lambda-5",
+    "manifest": "../../fixtures/manifest.json",
+    "functions": [
+      {
+        "name": "report",
+        "functionName": "bench-commerce-lambda-5-bench-report"
+      },
+      {
+        "name": "product-lookup",
+        "functionName": "bench-commerce-lambda-5-bench-product-lookup"
+      },
+      {
+        "name": "cart-pricing",
+        "functionName": "bench-commerce-lambda-5-bench-cart-pricing"
+      },
+      {
+        "name": "create-order",
+        "functionName": "bench-commerce-lambda-5-bench-create-order"
+      },
+      {
+        "name": "notification",
+        "functionName": "bench-commerce-lambda-5-bench-notification"
+      }
+    ],
+    "sourceRoot": "../../fixtures/lambdas"
+  }
+}

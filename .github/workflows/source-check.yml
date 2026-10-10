@@ -13,11 +13,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22.22.0
-      - name: Install pinned Python tooling
-        run: |
-          python3 -m venv .work/ci-tools
-          .work/ci-tools/bin/pip install uv==0.12.23
-          echo "$PWD/.work/ci-tools/bin" >> "$GITHUB_PATH"
       - name: Install locked dependencies
         run: node fixtures/install.mjs
       - name: Check fixtures and protocol
