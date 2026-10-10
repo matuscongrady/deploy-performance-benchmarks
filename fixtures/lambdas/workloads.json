@@ -1,30 +1,4 @@
 {
-  "1": {
-    "description": "Generate sales reports as PDF, Excel and Word documents",
-    "entrypoints": {
-      "report": "handlers/report.mjs:handler"
-    },
-    "changedFunctions": [
-      "report"
-    ]
-  },
-  "5": {
-    "description": "A small storefront backend",
-    "entrypoints": {
-      "report": "handlers/report.mjs:handler",
-      "product-lookup": "handlers/product-lookup.mjs:handler",
-      "cart-pricing": "handlers/cart-pricing.mjs:handler",
-      "create-order": "handlers/create-order.mjs:handler",
-      "notification": "handlers/notification.mjs:handler"
-    },
-    "changedFunctions": [
-      "report",
-      "product-lookup",
-      "cart-pricing",
-      "create-order",
-      "notification"
-    ]
-  },
   "25": {
     "description": "Commerce, customer and fulfillment functions",
     "entrypoints": {
