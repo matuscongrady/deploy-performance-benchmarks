@@ -1,0 +1,20 @@
+{
+  "description": "Five independently deployed commerce services",
+  "services": [
+    "api",
+    "reporting",
+    "inventory",
+    "webhooks",
+    "notifications"
+  ],
+  "changedServices": [
+    "api",
+    "reporting",
+    "notifications"
+  ],
+  "unchangedServices": [
+    "inventory",
+    "webhooks"
+  ],
+  "buildContextRule": "Each service directory is its entire build context; never use the repository root as its context."
+}

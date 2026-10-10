@@ -1,0 +1,11 @@
+{
+  "path": "/webhook",
+  "method": "POST",
+  "body": {
+    "payload": "{\"orderId\":\"order-100\",\"status\":\"paid\"}"
+  },
+  "sign": "signature",
+  "expect": {
+    "accepted": true
+  }
+}

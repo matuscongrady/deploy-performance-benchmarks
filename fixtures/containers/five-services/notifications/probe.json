@@ -1,0 +1,14 @@
+{
+  "path": "/notify",
+  "method": "POST",
+  "body": {
+    "jobId": "fresh-probe-job",
+    "email": "alex@example.test",
+    "orderId": "order-100"
+  },
+  "expect": {
+    "jobId": "fresh-probe-job",
+    "status": "processed",
+    "html": "<p>Order order-100 is ready.</p>"
+  }
+}

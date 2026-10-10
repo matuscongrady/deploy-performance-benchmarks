@@ -1,0 +1,39 @@
+# Measurement rules
+
+## Packaging
+
+Time the platform’s native production build, starting immediately before its build command and ending when the deployable output is complete. Dependency installation is outside the local Lambda packaging timer. Container builds include the dependency installation performed by their native recipe; disclose it and its cache state. Save its exact lockfile and installation command. In managed builders, use the build phase timestamps from the platform’s logs; keep scheduling, checkout and deployment outside this number. If the platform does not expose a reliable build boundary, report it as unavailable.
+
+Run two separate series: a clean build with build artifacts removed, and a source edit after a completed build with normal build caches retained. Dependencies stay installed in both. Record the exact directories removed. Never silently blend the two series.
+
+For Lambda size, count every compressed function ZIP and every required shared layer once. Save their hashes and file lists. Prove that those same artifacts were uploaded during an untimed qualification deployment and that every packaged handler passes its business probe. A JavaScript bundle, staging directory or synthesized template alone is not an upload package.
+
+For containers, use the platform’s usual builder: the candidate’s automatic packaging, Ravion Railpack, Render’s native runtime, Heroku buildpacks, and SST/CDK’s built-in Docker image builds. SST/CDK get normal application Dockerfiles; the candidate does not use them. Record the builder/version, build commands, plan, CPU/memory, region, language runtime and output format. OCI compressed image bytes, uncompressed image size and Heroku classic slugs are different measures. Compare only identical formats. An inaccessible artifact has no size result; it does not have size zero.
+
+## Deployment
+
+Create the application before measurement. Verify its baseline business output and source revision. Account setup, initial infrastructure provisioning, build-tool installation for local CLI tests and credentials setup are untimed. Keep the timed source edit and the final source commit in the record.
+
+The Lambda updates change all selected functions. Each function has its own revision file, so this does not create an artificial shared-file dependency. The five-service update changes API, reporting and notifications; inventory and webhooks retain their original build contexts. Record hashes of each context before and after.
+
+For CLI, start before the update command. Include packaging, upload and rollout. For Git push, start before `git push`; include scheduling, checkout, tool/dependency installation, building, upload and rollout. `commandDurationMs` is diagnostic, not the deployment result.
+
+Stop when all changed components pass their business probes with the new revision and all unchanged components pass with the baseline revision. Reporting and notification probes submit new job IDs. A health endpoint, old replica response or CLI success alone is insufficient. Save the probe responses and observation timestamps.
+
+Use the fastest supported cloud update path for the tested source edit. The candidate uses automatic fast deployment/hotswap; CDK uses hotswap; Serverless uses function deployment; SST uses its cloud deploy command. Local SST Live execution is not a deployed cloud service. If the fastest path uses different rollout guarantees, development-only behavior or infrastructure drift, disclose it beside the chart. Do not describe these paths as equivalent production rollouts.
+
+## Fresh and repeat CI
+
+“Fresh CI” means an existing application updated through an ephemeral runner with no restored dependency/build cache, or a hosted platform build with a documented fresh-cache control. It does not mean creating the application for the first time. A fresh VM can restore caches; save both runner identity and cache logs.
+
+For the repeat series, complete the previous update and verify readiness. Wait 15 minutes from that observation, change the source revision, then push. Save restored/missed cache keys and the builder’s reuse logs. Label the website chart “Another push after 15 minutes.” Mention “warm” only where reuse was demonstrated.
+
+Managed platforms may use different machines and caches from GitHub Actions. Publish those differences. If clearing a managed cache starts a deployment itself, that deployment cannot serve as a cache reset immediately followed by a supposedly untouched timed Git push.
+
+## Repetitions and website results
+
+Qualification runs are untimed and kept separately. Perform ten measured attempts for every published provider/scenario/cache series, alternating provider order rather than running one provider’s entire series first. Use a different revision per attempt. Keep failures, timeouts and retries; do not keep only the fastest runs.
+
+Show median and min/max, sample count, versions, native settings and the source/data links. Keep full raw records and evidence so readers can calculate other statistics. A provider with missing prerequisites is “not measured”; it does not lose with an invented duration. A chart cannot support a claim that one tool wins every benchmark outside the tested matrix.
+
+Stop iterating a fixture or timing rule once the comparative series starts. If application code, native settings or instrumentation changes, start a new versioned series for every affected provider. Optimizing the candidate is allowed; competitors keep their fastest supported paths and the disclosed usual settings. Publish the final version and the complete final series.

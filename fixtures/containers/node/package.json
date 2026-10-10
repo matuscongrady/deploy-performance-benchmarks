@@ -1,0 +1,20 @@
+{
+  "name": "commerce-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "express": "5.1.0",
+    "zod": "3.24.2",
+    "decimal.js": "10.5.0",
+    "handlebars": "4.7.8",
+    "luxon": "3.6.1"
+  }
+}

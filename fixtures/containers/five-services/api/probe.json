@@ -1,0 +1,10 @@
+{
+  "path": "/quote",
+  "method": "POST",
+  "body": {
+    "quantity": 2
+  },
+  "expect": {
+    "total": "25.00"
+  }
+}

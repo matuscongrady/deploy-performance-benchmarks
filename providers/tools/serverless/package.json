@@ -1,0 +1,9 @@
+{
+  "name": "benchmark-serverless-tools",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "serverless": "4.43.0"
+  }
+}

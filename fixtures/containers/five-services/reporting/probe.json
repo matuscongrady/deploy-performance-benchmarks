@@ -1,0 +1,12 @@
+{
+  "path": "/report",
+  "method": "POST",
+  "body": {
+    "jobId": "fresh-probe-job",
+    "sales": 33
+  },
+  "expect": {
+    "jobId": "fresh-probe-job",
+    "format": "%PDF"
+  }
+}

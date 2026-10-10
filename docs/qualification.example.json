@@ -1,0 +1,77 @@
+{
+  "scenario": "deploy-node-cli",
+  "provider": "candidate",
+  "approved": false,
+  "toolVersion": {
+    "reported": "REPLACE_WITH_ACTUAL_VERSION",
+    "sha256": "REPLACE_WITH_BINARY_HASH",
+    "source": "REPLACE_WITH_RELEASE_OR_SOURCE_REFERENCE"
+  },
+  "environment": {
+    "region": "eu-west-1",
+    "runtime": "nodejs22",
+    "plan": "REPLACE_WITH_ACTUAL_PLAN"
+  },
+  "settings": {
+    "deploymentMode": "REPLACE_WITH_OBSERVED_NATIVE_FAST_PATH"
+  },
+  "cacheEvidence": {
+    "series": "cli-existing-cache",
+    "proof": "REPLACE_WITH_EVIDENCE_PATH"
+  },
+  "probes": [
+    {
+      "name": "api",
+      "url": "https://REPLACE_WITH_DEPLOYED_URL/quote",
+      "method": "POST",
+      "body": {
+        "lines": [
+          {
+            "productId": "coffee",
+            "quantity": 2
+          },
+          {
+            "productId": "mug",
+            "quantity": 1
+          }
+        ]
+      },
+      "expected": {
+        "total": "33.00",
+        "currency": "USD",
+        "revision": "trial-001"
+      }
+    }
+  ],
+  "qualificationEvidence": [
+    {
+      "file": "REPLACE_WITH_IGNORED_QUALIFICATION_LOG",
+      "sha256": "REPLACE_WITH_ACTUAL_SHA256"
+    }
+  ],
+  "baselineProbes": [
+    {
+      "name": "api",
+      "url": "https://REPLACE_WITH_DEPLOYED_URL/quote",
+      "method": "POST",
+      "body": {
+        "lines": [
+          {
+            "productId": "coffee",
+            "quantity": 2
+          },
+          {
+            "productId": "mug",
+            "quantity": 1
+          }
+        ]
+      },
+      "expected": {
+        "total": "33.00",
+        "currency": "USD",
+        "revision": "baseline"
+      }
+    }
+  ],
+  "appId": "commerce-node"
+}

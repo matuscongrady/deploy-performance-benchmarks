@@ -1,0 +1,11 @@
+{
+  "path": "/reserve",
+  "method": "POST",
+  "body": {
+    "productId": "mug",
+    "quantity": 2
+  },
+  "expect": {
+    "remaining": 10
+  }
+}

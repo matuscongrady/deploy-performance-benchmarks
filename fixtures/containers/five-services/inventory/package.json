@@ -1,0 +1,17 @@
+{
+  "name": "commerce-inventory",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "express": "5.1.0",
+    "zod": "3.24.2"
+  }
+}

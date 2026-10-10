@@ -1,0 +1,11 @@
+{
+  "name": "benchmark-sst-tools",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "archiver": "6.0.1",
+    "glob": "10.3.10",
+    "sst": "4.17.2"
+  }
+}
