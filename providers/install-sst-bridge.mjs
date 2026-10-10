@@ -14,7 +14,7 @@ let bytes;try{bytes=await readFile(archive);}catch{const res=await fetch(url);if
 if(createHash('sha256').update(bytes).digest('hex')!==sourceSha)throw Error('Pinned SST source checksum mismatch');
 const helperSha=createHash('sha256').update(await readFile(join(own,'sst-native-main.go'))).digest('hex');
 let old;try{old=JSON.parse(await readFile(join(cache,'bridge.json'),'utf8'));}catch{}
-if(old?.sourceSha===sourceSha && old?.helperSha===helperSha){try{await access(join(source,'native-package'));if(createHash('sha256').update(await readFile(join(source,'native-package'))).digest('hex')!==old.binarySha)throw Error('Compiled SST bridge checksum mismatch');console.log('Pinned SST native bridge already compiled');process.exit(0);}catch{}}
+if(old?.sourceSha===sourceSha && old?.helperSha===helperSha){try{await access(join(source,'native-package'));if(createHash('sha256').update(await readFile(join(source,'native-package'))).digest('hex')!==old.binarySha)throw Error('Compiled SST bridge checksum mismatch');await cp(join(source,'LICENSE'),join(cache,'SST-LICENSE'));console.log('Pinned SST native bridge already compiled');process.exit(0);}catch{}}
 await rm(source,{recursive:true,force:true});await mkdir(source,{recursive:true});
 run('tar',['-xzf',archive,'--strip-components=1','-C',source]);
 await mkdir(join(source,'cmd/benchmark-package'),{recursive:true});await cp(join(own,'sst-native-main.go'),join(source,'cmd/benchmark-package/main.go'));
