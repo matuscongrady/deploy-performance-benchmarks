@@ -80,6 +80,14 @@ try {
   assert.equal(ciProof.runner.cores,4);
   assert.throws(()=>validateNativeCacheObservation({...ci,runner:{...ci.runner,githubRunAttempt:'1'}},ciIdentity,completion,'github-actions'),/different run\/attempt/);
   assert.throws(()=>validateNativeCacheObservation({...ci,cache:{...ci.cache,restored:true}},ciIdentity,completion,'github-actions'),/unexpectedly restored/);
+  const hostedIdentity={...ciIdentity,provider:'render',scenario:'deploy-node-git-cold'};
+  const hosted={...hostedIdentity,status:'passed',nativeRunId:completion.runId,runner:{host:'hosted'},cache:{restored:false}};
+  validateNativeCacheObservation(hosted,hostedIdentity,completion,'hosted');
+  assert.throws(()=>validateNativeCacheObservation({...hosted,cache:{restored:true}},hostedIdentity,completion,'hosted'),/unexpectedly restored/);
+  assert.throws(()=>validateNativeCacheObservation({...hosted,cache:{state:'unknown'}},hostedIdentity,completion,'hosted'),/observed restored boolean/);
+  assert.throws(()=>validateNativeCacheObservation({...hosted,cache:{restored:'false'}},hostedIdentity,completion,'hosted'),/observed restored boolean/);
+  const repeatIdentity={...hostedIdentity,scenario:'deploy-node-git-repeat'};
+  for(const restored of [true,false])validateNativeCacheObservation({...hosted,scenario:repeatIdentity.scenario,cache:{restored}},repeatIdentity,completion,'hosted');
   await writeFile(path.resolve(temp,ciProof.nativeEvidence.file),JSON.stringify({...ci,status:'failed'}));
   await assert.rejects(readCacheEvidence(ciProof.proofFile,ciIdentity,{base:temp}),/checksum mismatch/);
   assert.throws(()=>validateRecord({...previous,cacheEvidence:{...checked,runId:'another-run'}}),/runId/);

@@ -79,7 +79,11 @@ export function validateNativeCacheObservation(observation,expected,completion,m
     if(typeof observation.cache.requested!=='boolean'||typeof observation.cache.restored!=='boolean'||typeof observation.cache.exactKeyHit!=='boolean')throw Error('CI cache restore observation is missing');
     if(expected.scenario.endsWith('-git-cold')&&(observation.cache.requested||observation.cache.restored))throw Error('Fresh CI attempt unexpectedly restored a cache');
     if(expected.scenario.endsWith('-git-repeat')&&!observation.cache.requested)throw Error('Repeat CI attempt did not request the qualified cache restore');
-  }else if(String(observation.nativeRunId)!==String(completion.runId))throw Error('Hosted cache evidence belongs to a different native run');
+  }else {
+    if(String(observation.nativeRunId)!==String(completion.runId))throw Error('Hosted cache evidence belongs to a different native run');
+    if(typeof observation.cache.restored!=='boolean')throw Error('Hosted cache evidence requires an observed restored boolean');
+    if(expected.scenario.endsWith('-git-cold')&&observation.cache.restored)throw Error('Fresh hosted attempt unexpectedly restored a cache');
+  }
 }
 export function requireGitCacheObserver(q) {
   if(q.pipeline?.engine==='github-actions')return;
