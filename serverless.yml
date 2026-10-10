@@ -1,0 +1,52 @@
+{
+  "frameworkVersion": "4.43.0",
+  "service": "bench-commerce-lambda-1",
+  "provider": {
+    "name": "aws",
+    "runtime": "nodejs22.x",
+    "region": "eu-west-1",
+    "stage": "bench",
+    "memorySize": 512,
+    "timeout": 30
+  },
+  "package": {
+    "individually": true,
+    "patterns": [
+      "!app/check.mjs",
+      "!app/workloads.json",
+      "!app/package-lock.json",
+      "!provider-plan.json",
+      "!manifest.json",
+      "!plan.json",
+      "!qualification.json",
+      "!qualifications.json",
+      "!native-outputs.json",
+      "!**/*.log",
+      "!**/evidence/**",
+      "!deployment/**",
+      "!providers/**",
+      "!docs/**",
+      "!scripts/**",
+      "!scenarios/**",
+      "!.work/**",
+      "!results/**"
+    ]
+  },
+  "functions": {
+    "report": {
+      "handler": "fixtures/lambdas/handlers/report.handler",
+      "name": "bench-commerce-lambda-1-bench-report"
+    }
+  },
+  "build": {
+    "esbuild": {
+      "minify": true,
+      "sourcemap": false,
+      "external": [
+        "pdfkit",
+        "exceljs",
+        "docx"
+      ]
+    }
+  }
+}
