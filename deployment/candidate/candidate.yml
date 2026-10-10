@@ -1,0 +1,26 @@
+{
+  "projectName": "bench-commerce-python",
+  "resources": {
+    "api": {
+      "type": "web-service",
+      "properties": {
+        "resources": {
+          "cpu": 0.25,
+          "memory": 512
+        },
+        "packaging": {
+          "type": "buildpack",
+          "properties": {
+            "sourceDirectoryPath": "../../fixtures/containers/python"
+          }
+        },
+        "environment": [
+          {
+            "name": "PORT",
+            "value": "3000"
+          }
+        ]
+      }
+    }
+  }
+}
