@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {mkdir,readFile} from 'node:fs/promises';
 import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord,readCacheEvidence} from './lib.mjs';
+import {needsSstRollout,admitSstRollout} from './sst-rollout.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
 const [operation,id,provider]=positional;
 try {
@@ -38,6 +39,7 @@ try {
       if(identity.exitCode!==0||JSON.parse(identity.stdout).Account!==qualification.environment.accountId)throw Error('Authenticated AWS account differs from qualification');
     }
     let baseline,componentsBefore;
+    if(needsSstRollout(scenario,provider)){const {verifyExistingApplication}=await import('./existing-app.mjs');await verifyExistingApplication({q:qualification,provider,appName:plan.appName,region:qualification.environment.region});}
     if(scenario.fixture==='five-services'){const {captureComponents}=await import('./component-state.mjs');componentsBefore=await captureComponents(qualification.componentSnapshots);}
     if(scenario.kind==='deploy') {const {probe}=await import('./probe.mjs');baseline=await probe(qualification.baselineProbes,{timeoutMs:30000});}
     const git=await command(['git','rev-parse','HEAD']); if(git.exitCode!==0) throw Error('Commit the benchmark sources first');
@@ -57,7 +59,7 @@ try {
     const logs=[]; let status='passed',failure;
     for(let i=0;i<commands.length;i++) {
       const stdoutFile=path.join(evidenceDir,`command-${i}.stdout.log`),stderrFile=path.join(evidenceDir,`command-${i}.stderr.log`);
-      const result=await command(commands[i],{cwd:plan.cwd,env:plan.env||{},stdoutFile,stderrFile});
+      const result=await command(commands[i],{cwd:plan.cwd,env:{...plan.env,BENCH_SOURCE_COMMIT:git.stdout.trim(),BENCH_RUN_ID:runId},stdoutFile,stderrFile});
       logs.push({argv:result.argv,exitCode:result.exitCode,durationMs:result.durationMs,stdoutFile,stderrFile});
       if(result.exitCode!==0) {status='failed';failure=`Native command ${i+1} failed`;break;}
     }
@@ -70,7 +72,7 @@ try {
     if(status==='passed'&&scenario.kind==='package') {
       const {collectArtifacts}=await import('./sizes.mjs');
       try {
-        artifacts=await collectArtifacts(qualification.artifacts,plan.cwd);
+        artifacts=await collectArtifacts(qualification.artifacts,plan.cwd,{startedAt,commandFinishedAt,sourceCommit:git.stdout.trim(),runId,provider});
         if(scenario.fixture.startsWith('lambda-')) {
           const bindings=path.join(evidenceDir,'artifact-bindings.json');await save(bindings,qualification.artifacts);
           const stdoutFile=path.join(evidenceDir,'packaged-business.stdout.log'),stderrFile=path.join(evidenceDir,'packaged-business.stderr.log');
@@ -82,11 +84,15 @@ try {
       } catch(e){status='unqualified';failure=e.message;}
     }
     const finish=performance.now(),finishedAt=new Date().toISOString();
-    let reuse;
+    let reuse,rolloutAdmission;
+    if(status==='passed'&&needsSstRollout(scenario,provider)){try{rolloutAdmission=await admitSstRollout(qualification);}catch(e){status='failed';failure=e.message;rolloutAdmission=e.rolloutAdmission;}}
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
+    if(rolloutAdmission){const file=path.join(evidenceDir,'rollout-admission.json');await save(file,rolloutAdmission);evidence.push({file:path.relative(root,file),sha256:await sha256(file)});}
+    for(const artifact of artifacts.files||[])if(artifact.role==='manifest'||artifact.role==='build-identity')evidence.push({file:path.relative(root,path.resolve(plan.cwd,artifact.path)),sha256:artifact.sha256});
     for(const log of logs) for(const file of [log.stdoutFile,log.stderrFile]) evidence.push({file:path.relative(root,file),sha256:await sha256(file)});
     const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt:scenario.kind==='package'?commandFinishedAt:finishedAt,durationMs:scenario.kind==='package'?commandDurationMs:finish-start,commandDurationMs,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
+    if(rolloutAdmission)record.rolloutAdmission=rolloutAdmission;
     validateRecord(record); await saveResult(resultFile,record);
     console.log(JSON.stringify(record,null,2)); if(status!=='passed') process.exitCode=1;
   } else if(operation==='record-managed') {

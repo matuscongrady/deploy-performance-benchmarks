@@ -8,6 +8,7 @@ import { prepare, versions } from '../providers/index.mjs';
 import { checkQualification } from './qualification.mjs';
 import { probe } from './probe.mjs';
 import {validateExistingApplication,verifyExistingApplication} from './existing-app.mjs';
+import {needsSstRollout,admitSstRollout} from './sst-rollout.mjs';
 
 const modes = new Set(['--plan-only','--validate-only','--fetch-candidate','--run']);
 const [mode = '--plan-only', planScenario] = process.argv.slice(2);
@@ -143,9 +144,10 @@ async function run(config) {
     report.toolVersion={reported:redact(version.stdout.trim()),sha256:provider==='candidate'?await sha256(binary):undefined};
     for(const argv of plan.commands.update)await step(argv);
     report.readiness=await probe(q.probes,{timeoutMs:q.timeoutMs||900000});
+    if(needsSstRollout(scenario,provider))report.rolloutAdmission=await admitSstRollout(q);
     if(scenario.fixture==='five-services') {const {captureComponents,compareUnchanged}=await import('./component-state.mjs');report.reuse=compareUnchanged(componentsBefore,await captureComponents(q.componentSnapshots));}
     report.status='passed';
-  } catch(error) {report.status='failed';report.failure=redact(error.message);throw error;}
+  } catch(error) {report.status='failed';report.failure=redact(error.message);if(error.rolloutAdmission)report.rolloutAdmission=error.rolloutAdmission;throw error;}
   finally {report.finishedAt=new Date().toISOString();await writeFile(path.join(directory,'ci-evidence.json'),redact(JSON.stringify(report,null,2))+'\n');}
   console.log('Native update and all business/revision probes passed. CI evidence is diagnostic; the external Git-push runner owns the complete timer.');
 }

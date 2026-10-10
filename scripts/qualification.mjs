@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {root,json} from './lib.mjs';
+import {needsSstRollout,validateSstRolloutBindings} from './sst-rollout.mjs';
 function contains(actual,expected) {if(Array.isArray(expected))return Array.isArray(actual)&&actual.length===expected.length&&expected.every((v,i)=>contains(actual[i],v));if(expected&&typeof expected==='object')return actual&&Object.entries(expected).every(([k,v])=>contains(actual[k],v));return actual===expected;}
 export async function checkQualification(q,scenario,provider) {
   if(q.scenario!==scenario.id||q.provider!==provider||q.approved!==true)throw Error('A matching reviewed qualification file is required');
@@ -15,6 +16,7 @@ export async function checkQualification(q,scenario,provider) {
     }
   }
   if(scenario.kind==='deploy') {
+    if(needsSstRollout(scenario,provider))validateSstRolloutBindings(q);
     if(scenario.fixture==='five-services'&&(!Array.isArray(q.componentSnapshots)||q.componentSnapshots.length!==5))throw Error('Five native deployment/artifact/configuration snapshots are required');
     const m=await json(path.join(root,'fixtures/manifest.json'));
     const components=scenario.fixture.startsWith('lambda-')?m.lambda.functions.filter(f=>m.lambda.workloads.find(w=>w.id===scenario.fixture).functions.includes(f.name)).map(f=>({name:f.name,expected:f.probe.expected})):scenario.fixture==='five-services'?m.fiveServices.services.map(s=>({name:s.name,expected:s.businessProbe.expected})):[{name:'api',expected:m.containers.find(c=>c.id==='container-'+scenario.fixture).businessProbe.expected}];

@@ -20,6 +20,8 @@ For CLI, start before the update command. Include packaging, upload and rollout.
 
 Stop when all changed components pass their business probes with the new revision and all unchanged components pass with the baseline revision. Reporting and notification probes submit new job IDs. A health endpoint, old replica response or CLI success alone is insufficient. Save the probe responses and observation timestamps.
 
+The timer measures first verified business readiness. Acceptance also requires the native update to succeed. SST's container command can return before ECS completes its rollout, so the runner checks every changed service reaches `COMPLETED`, then repeats its business/revision probes. Those checks happen after the timer; a failed rollout, timeout or rollback disqualifies the attempt. CDK's pinned hotswap implementation already waits for ECS stability before returning. Neither finish line claims that a single early response proves a completed rollout.
+
 Use the fastest supported cloud update path for the tested source edit. The candidate uses automatic fast deployment/hotswap; CDK uses hotswap; Serverless uses function deployment; SST uses its cloud deploy command. Local SST Live execution is not a deployed cloud service. If the fastest path uses different rollout guarantees, development-only behavior or infrastructure drift, disclose it beside the chart. Do not describe these paths as equivalent production rollouts.
 
 ## Fresh and repeat CI
