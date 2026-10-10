@@ -78,6 +78,8 @@ Start with the deployment qualification in [the runbook](runbook.md). In additio
 }
 ```
 
+`nativeStackName` applies to candidate, Serverless Framework and CDK. SST uses Pulumi and has no application CloudFormation stack. For SST, omit `nativeStackName` and provide `nativeResources` instead: one entry per selected function or service, using the ARNs from the qualified baseline. For Lambda use `{name, type: "lambda", arn}`. For ECS use `{name, type: "ecs", arn, clusterArn}`. CI reads every resource and checks its account, region, `sst:app` and `sst:stage` tags against the generated app. A missing or differently tagged resource fails before the update. The OIDC role needs `lambda:GetFunction` and ECS service/tag read permissions for those checks.
+
 This is an addition to the qualification, not a complete example. Keep `scenario`, `provider`, `approved`, actual tool version, cache series, settings and the original qualification evidence references. The approved qualification is the operator's reviewed binding to an application; CI does not recreate the original artifact qualification from those references. Keep the original evidence with the external campaign records.
 
 Get the workflow checksum with:

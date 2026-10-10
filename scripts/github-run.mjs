@@ -7,4 +7,4 @@ if(r.exitCode!==0){process.stderr.write(r.stderr);process.exit(r.exitCode||1);}
 const runs=JSON.parse(r.stdout).workflow_runs.filter(r=>r.head_sha===sourceCommit).sort((a,b)=>b.id-a.id);
 const run=runs[0];
 const status=!run||run.status!=='completed'?'pending':run.conclusion==='success'?'succeeded':run.conclusion==='cancelled'?'cancelled':'failed';
-console.log(JSON.stringify({sourceCommit,status,runId:run?.id,url:run?.html_url,conclusion:run?.conclusion}));
+console.log(JSON.stringify({sourceCommit,status,repository,runId:run?.id,runAttempt:run?.run_attempt,url:run?.html_url,conclusion:run?.conclusion}));

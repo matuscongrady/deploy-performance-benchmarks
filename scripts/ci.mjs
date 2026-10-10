@@ -7,6 +7,7 @@ import { root, scenarioById, safeId, command, sha256 } from './lib.mjs';
 import { prepare, versions } from '../providers/index.mjs';
 import { checkQualification } from './qualification.mjs';
 import { probe } from './probe.mjs';
+import {validateExistingApplication,verifyExistingApplication} from './existing-app.mjs';
 
 const modes = new Set(['--plan-only','--validate-only','--fetch-candidate','--run']);
 const [mode = '--plan-only', planScenario] = process.argv.slice(2);
@@ -72,7 +73,7 @@ async function configuration({qualified=false}={}) {
     await checkQualification(qualification,scenario,provider);
     if(qualification.appId!==appId||qualification.environment.region!==region||qualification.stage!==stage)throw Error('Qualification must match the existing application ID, stage and region');
     if(!/^\d{12}$/.test(qualification.environment.accountId||''))throw Error('Qualification needs the disposable AWS account ID');
-    if(!qualification.nativeStackName)throw Error('Qualification must identify its already-created native stack');
+    validateExistingApplication(qualification,provider);
     if(qualification.pipeline?.branch!==branch||qualification.pipeline?.sourceCommit!==sourceCommit||!qualification.pipeline?.configurationEvidence)throw Error('Qualification must match the exact pushed branch and source commit');
     if(qualification.pipeline.workflowSha256!==await sha256(path.join(root,'.github/workflows/deploy-benchmark.yml')))throw Error('Qualification must bind the reviewed deployment workflow SHA-256');
     if(scenario.journey==='git-repeat') {const time=Date.parse(qualification.previousReadyAt);if(!Number.isFinite(time)||Date.now()-time<900000)throw Error('Repeat pushes require at least 15 minutes since previous verified readiness');}
@@ -122,8 +123,7 @@ async function run(config) {
   try {
     const identity=await command(['aws','sts','get-caller-identity','--query','Account','--output','text'],{timeoutMs:30000});
     if(identity.exitCode!==0||identity.stdout.trim()!==q.environment.accountId)throw Error('OIDC credentials do not match the qualified disposable account');
-    const stack=await command(['aws','cloudformation','describe-stacks','--stack-name',q.nativeStackName,'--region',config.region,'--output','json'],{timeoutMs:30000});
-    if(stack.exitCode!==0||!JSON.parse(stack.stdout).Stacks?.length)throw Error('The qualified baseline stack must already exist; CI never performs initial setup');
+    report.existingApplication=await verifyExistingApplication({q,provider,appName:plan.appName,region:config.region});
     report.baseline=await probe(q.baselineProbes,{timeoutMs:30000});
     let componentsBefore;
     if(scenario.fixture==='five-services') {const {captureComponents}=await import('./component-state.mjs');componentsBefore=await captureComponents(q.componentSnapshots);}
