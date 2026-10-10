@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {gzipSync} from 'node:zlib';
+import {mkdtemp,writeFile,readFile,rm,utimes,symlink} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {compressedImage,readCompressedImage} from './oci-size.mjs';
+import {collectArtifacts} from './sizes.mjs';
+import {validateRecord,sha256} from './lib.mjs';
+
+const digest=bytes=>'sha256:'+createHash('sha256').update(bytes).digest('hex');
+const config=Buffer.from(JSON.stringify({architecture:'amd64',os:'linux',config:{Cmd:['node','server.mjs']}}));
+const layer=gzipSync(Buffer.from('deterministic application layer\n'.repeat(100)));
+const descriptor=(bytes,mediaType)=>({mediaType,size:bytes.length,digest:digest(bytes)});
+const manifest={schemaVersion:2,mediaType:'application/vnd.oci.image.manifest.v1+json',config:descriptor(config,'application/vnd.oci.image.config.v1+json'),layers:[descriptor(layer,'application/vnd.oci.image.layer.v1.tar+gzip'),descriptor(layer,'application/vnd.oci.image.layer.v1.tar+gzip')]};
+const raw=JSON.stringify(manifest),imageDigest=digest(raw);
+assert.equal(compressedImage(manifest,raw).bytes,config.length+layer.length);
+assert.equal(compressedImage(manifest,raw).blobs.length,2);
+assert.throws(()=>compressedImage({...manifest,layers:[{...manifest.layers[0],mediaType:'application/vnd.oci.image.layer.v1.tar'}]},raw),/compressed/);
+assert.throws(()=>compressedImage({...manifest,layers:[manifest.layers[0],{...manifest.layers[0],size:layer.length+1}]},JSON.stringify({...manifest,layers:[manifest.layers[0],{...manifest.layers[0],size:layer.length+1}]})),/Conflicting/);
+assert.throws(()=>compressedImage(manifest,JSON.stringify({...manifest,annotations:{changed:'yes'}})),/Raw manifest/);
+assert.throws(()=>compressedImage({...manifest,config:{...manifest.config,size:-1}},JSON.stringify({...manifest,config:{...manifest.config,size:-1}})),/Invalid blob/);
+
+const temp=await mkdtemp(path.join(os.tmpdir(),'oci-check-'));
+try {
+  await writeFile(path.join(temp,'image.json'),raw);
+  const startedAt=new Date(Date.now()-1000).toISOString(),sourceCommit='a'.repeat(40),runId='oci-local-001',provider='cdk';
+  const native={provider,sourceCommit,runId,images:[{service:'api',imageId:digest(config)}]};
+  await writeFile(path.join(temp,'native.json'),JSON.stringify(native));
+  const attempt={startedAt,commandFinishedAt:new Date(Date.now()+100).toISOString(),sourceCommit,runId,provider};
+  const spec={qualified:true,format:'oci-compressed',platform:'linux/amd64',nativeBuild:{file:'native.json'},images:[{name:'api',manifestPath:'image.json'}]};
+  const result=await collectArtifacts(spec,temp,attempt);
+  assert.equal(result.manifestDigest,imageDigest);assert.equal(result.nativeBuild.imageId,digest(config));
+  assert.equal(result.bytes,config.length+layer.length);assert.equal(result.files.length,2);
+  for(const file of result.files)assert.equal(await sha256(path.join(temp,file.path)),file.sha256);
+  assert.equal(await readFile(path.join(temp,result.files.find(f=>f.role==='image-manifest').path),'utf8'),raw);
+  const cacheEvidence={runId,sourceCommit,scenario:'package-node',provider,appId:'sample-app',series:'clean',proofFile:'cache-proof.json',proofSHA:'b'.repeat(64)};
+  assert.equal(validateRecord({schemaVersion:1,kind:'package',status:'passed',scenario:'package-node',provider,runId,appId:'sample-app',sourceCommit,startedAt:'2026-10-10T12:00:00.000Z',finishedAt:'2026-10-10T12:00:01.000Z',durationMs:1000,toolVersion:{reported:'test'},environment:{},cacheEvidence,evidence:[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}],artifacts:result}).artifacts.bytes,result.bytes);
+  await assert.rejects(collectArtifacts(spec,temp,{...attempt,sourceCommit:'b'.repeat(40)}),/source, run or provider/);
+  await assert.rejects(collectArtifacts(spec,temp,{...attempt,runId:'other-run'}),/source, run or provider/);
+  await assert.rejects(collectArtifacts(spec,temp,{...attempt,provider:'sst'}),/source, run or provider/);
+  await writeFile(path.join(temp,'native.json'),JSON.stringify({...native,images:[{service:'api',imageId:'sha256:'+'f'.repeat(64)}]}));
+  await assert.rejects(collectArtifacts(spec,temp,attempt),/current native build image identity/);
+  await writeFile(path.join(temp,'native.json'),JSON.stringify(native));
+  await utimes(path.join(temp,'native.json'),new Date(0),new Date(0));
+  await assert.rejects(collectArtifacts(spec,temp,attempt),/not written during this attempt/);
+  await writeFile(path.join(temp,'native.json'),JSON.stringify(native));
+  await assert.rejects(collectArtifacts({...spec,images:[...spec.images,...spec.images]},temp,attempt),/qualified complete/);
+  await assert.rejects(collectArtifacts({...spec,images:[{name:'api',manifestPath:'../outside-image.json'}]},temp,attempt));
+  await symlink(path.join(temp,'image.json'),path.join(temp,'image-link.json'));
+  assert.equal((await collectArtifacts({...spec,images:[{name:'api',manifestPath:'image-link.json'}]},temp,attempt)).bytes,result.bytes);
+  const outside=await mkdtemp(path.join(os.tmpdir(),'oci-outside-'));
+  try {await writeFile(path.join(outside,'image.json'),raw);await symlink(path.join(outside,'image.json'),path.join(temp,'outside-link.json'));await assert.rejects(collectArtifacts({...spec,images:[{name:'api',manifestPath:'outside-link.json'}]},temp,attempt),/outside the generated project/);} finally {await rm(outside,{recursive:true,force:true});}
+  await assert.rejects(readCompressedImage({manifestPath:path.join(temp,'image.json'),expectedDigest:'sha256:'+'f'.repeat(64)}),/qualified runnable image digest/);
+
+  const attest={digest:'sha256:'+'d'.repeat(64),size:10,platform:{os:'unknown',architecture:'unknown'}};
+  const arm64={digest:'sha256:'+'e'.repeat(64),size:20,platform:{os:'linux',architecture:'arm64'}};
+  const index={schemaVersion:2,mediaType:'application/vnd.oci.image.index.v1+json',manifests:[attest,arm64,{digest:imageDigest,size:Buffer.byteLength(raw),platform:{os:'linux',architecture:'amd64'}}]};
+  const indexRaw=JSON.stringify(index),reference='registry.example.invalid/bench/api@'+digest(indexRaw);let calls=[];
+  const runCommand=async(argv,options)=>{calls.push({argv,options});const ref=argv[4];if(ref===reference||ref==='registry.example.invalid/bench/api:current')return {exitCode:0,stdout:indexRaw};if(ref==='registry.example.invalid/bench/api@'+imageDigest)return {exitCode:0,stdout:raw};throw Error('Unexpected registry request');};
+  const registry=await readCompressedImage({reference,expectedConfigDigest:digest(config),platform:'linux/amd64'},{runCommand});
+  assert.equal(registry.record.bytes,result.bytes);assert.equal(registry.record.sourceIndexDigest,digest(indexRaw));assert.equal(registry.indexRaw,indexRaw);assert.equal(calls.length,2);
+  await assert.rejects(readCompressedImage({reference:'registry.example.invalid/bench/api:current',expectedDigest:imageDigest},{runCommand}),/digest-pinned/);
+  const observedSpec={...spec,nativeBuild:{argv:['observe-native-image']},images:[{name:'api',reference:'registry.example.invalid/bench/api:current'}]};
+  const observer=async(argv,options)=>{if(argv[0]==='observe-native-image'){assert.equal(options.env.BENCH_RUN_ID,runId);assert.equal(options.env.BENCH_SOURCE_COMMIT,sourceCommit);return {exitCode:0,stdout:JSON.stringify(native)};}return runCommand(argv,options);};
+  const observed=await collectArtifacts(observedSpec,temp,{...attempt,runCommand:observer});
+  assert.equal(observed.manifestDigest,imageDigest);assert.equal(observed.reference,'registry.example.invalid/bench/api@'+imageDigest);assert.equal(observed.files.length,3);
+  await writeFile(path.join(temp,'index.json'),indexRaw);
+  await assert.rejects(readCompressedImage({manifestPath:path.join(temp,'index.json'),expectedDigest:imageDigest}),/Local input is an image index/);
+  await assert.rejects(readCompressedImage({reference,expectedConfigDigest:digest(config)},{runCommand:async()=>({exitCode:0,stdout:raw})}),/pinned manifest digest/);
+  const badIndex=JSON.stringify({...index,manifests:[{digest:imageDigest,size:1,platform:{os:'linux',architecture:'amd64'}}]});
+  await assert.rejects(readCompressedImage({reference:'registry.example.invalid/bench/api@'+digest(badIndex),expectedConfigDigest:digest(config)},{runCommand:async argv=>({exitCode:0,stdout:argv[4].endsWith(imageDigest)?raw:badIndex})}),/digest or size mismatch/);
+} finally {await rm(temp,{recursive:true,force:true});}
+console.log('OCI compressed manifest, current-build identity, registry selection and stale-artifact rejection checks passed. No network requests.');
