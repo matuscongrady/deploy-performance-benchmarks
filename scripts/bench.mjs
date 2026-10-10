@@ -4,7 +4,7 @@ import os from 'node:os';
 import {mkdir,readFile,copyFile} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord,readCacheEvidence} from './lib.mjs';
-import {needsSstRollout,admitSstRollout} from './sst-rollout.mjs';
+import {needsSstRollout,admitSstRollout,captureSstRolloutBaseline} from './sst-rollout.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
 const [operation,id,provider]=positional;
 try {
@@ -39,10 +39,11 @@ try {
       const identity=await command(['aws','sts','get-caller-identity','--region',qualification.environment.region,'--output','json']);
       if(identity.exitCode!==0||JSON.parse(identity.stdout).Account!==qualification.environment.accountId)throw Error('Authenticated AWS account differs from qualification');
     }
-    let baseline,componentsBefore;
+    let baseline,componentsBefore,rolloutBaseline;
     if(needsSstRollout(scenario,provider)){const {verifyExistingApplication}=await import('./existing-app.mjs');await verifyExistingApplication({q:qualification,provider,appName:plan.appName,region:qualification.environment.region});}
     if(scenario.fixture==='five-services'){const {captureComponents}=await import('./component-state.mjs');componentsBefore=await captureComponents(qualification.componentSnapshots);}
     if(scenario.kind==='deploy') {const {probe}=await import('./probe.mjs');baseline=await probe(qualification.baselineProbes,{timeoutMs:30000});}
+    if(needsSstRollout(scenario,provider))rolloutBaseline=await captureSstRolloutBaseline(qualification);
     const git=await command(['git','rev-parse','HEAD']); if(git.exitCode!==0) throw Error('Commit the benchmark sources first');
     const dirty=await command(['git','status','--porcelain']); if(dirty.stdout.trim()) throw Error('Commit all source changes before timing');
     const commands=plan.commands[scenario.kind==='package'?'package':'update'];
@@ -86,11 +87,11 @@ try {
     }
     const finish=performance.now(),finishedAt=new Date().toISOString();
     let reuse,rolloutAdmission;
-    if(status==='passed'&&needsSstRollout(scenario,provider)){try{rolloutAdmission=await admitSstRollout(qualification);}catch(e){status='failed';failure=e.message;rolloutAdmission=e.rolloutAdmission;}}
+    if(status==='passed'&&needsSstRollout(scenario,provider)){try{rolloutAdmission=await admitSstRollout(qualification,{baseline:rolloutBaseline});}catch(e){status='failed';failure=e.message;rolloutAdmission=e.rolloutAdmission;}}
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
     if(rolloutAdmission){const file=path.join(evidenceDir,'rollout-admission.json');await save(file,rolloutAdmission);evidence.push({file:path.relative(root,file),sha256:await sha256(file)});}
-    for(const artifact of artifacts.files||[])if(artifact.role==='manifest'||artifact.role==='build-identity'){
+    for(const artifact of artifacts.files||[])if(artifacts.format==='oci-compressed'){
       const file=path.join(evidenceDir,'artifacts',artifact.path);await mkdir(path.dirname(file),{recursive:true});
       await copyFile(path.resolve(plan.cwd,artifact.path),file,constants.COPYFILE_EXCL);
       evidence.push({file:path.relative(root,file),sha256:artifact.sha256});
