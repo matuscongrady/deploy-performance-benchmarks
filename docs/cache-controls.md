@@ -40,7 +40,7 @@ The local diagnostic Docker adapter supports `BENCH_DOCKER_NO_CACHE=1`; that fla
 
 ## GitHub Actions
 
-[CI setup](ci-setup.md) defines the executable deployment workflow. Fresh tests restore no cache. Repeat tests restore only the configured paths, retain the actual cache hit/miss event and keep the previous verified readiness timestamp. A new VM can restore a cache. No cache hit means no claim of a warm build. Set `pipeline.engine` to `github-actions`. After native terminal success, the Git runner downloads `ci-PROVIDER-SHA-ATTEMPT` from the exact completed run. Its `ci-evidence.json` must report passed status and matching commit, test, provider, application, GitHub run ID and attempt. The observed runner and restore flags are bound to an immutable per-attempt proof, separate from the machine timing the push.
+[CI setup on main](https://github.com/matuscongrady/deploy-performance-benchmarks/blob/main/docs/ci-setup.md) defines the executable deployment workflow. Fresh tests restore no cache. Repeat tests restore only the configured paths, retain the actual cache hit/miss event and keep the previous verified readiness timestamp. A new VM can restore a cache. No cache hit means no claim of a warm build. Set `pipeline.engine` to `github-actions`. After native terminal success, the Git runner downloads `ci-PROVIDER-SHA-ATTEMPT` from the exact completed run. Its `ci-evidence.json` must report passed status and matching commit, test, provider, application, GitHub run ID and attempt. The observed runner and restore flags are bound to an immutable per-attempt proof, separate from the machine timing the push.
 
 ## Hosted builders
 

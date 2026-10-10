@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: bench-commerce-five-services-api
+    runtime: node
+    plan: starter
+    rootDir: fixtures/containers/five-services/api
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /version
+    autoDeployTrigger: commit
+  - type: web
+    name: bench-commerce-five-services-reporting
+    runtime: node
+    plan: starter
+    rootDir: fixtures/containers/five-services/reporting
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /version
+    autoDeployTrigger: commit
+  - type: web
+    name: bench-commerce-five-services-inventory
+    runtime: node
+    plan: starter
+    rootDir: fixtures/containers/five-services/inventory
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /version
+    autoDeployTrigger: commit
+  - type: web
+    name: bench-commerce-five-services-webhooks
+    runtime: node
+    plan: starter
+    rootDir: fixtures/containers/five-services/webhooks
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /version
+    autoDeployTrigger: commit
+  - type: web
+    name: bench-commerce-five-services-notifications
+    runtime: node
+    plan: starter
+    rootDir: fixtures/containers/five-services/notifications
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /version
+    autoDeployTrigger: commit
