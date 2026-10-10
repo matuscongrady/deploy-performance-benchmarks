@@ -5,7 +5,7 @@ import {mkdtemp,writeFile,readFile,rm,utimes,symlink} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {compressedImage,readCompressedImage} from './oci-size.mjs';
-import {collectArtifacts} from './sizes.mjs';
+import {collectArtifacts,verifyImportedOci} from './sizes.mjs';
 import {validateRecord,sha256} from './lib.mjs';
 
 const digest=bytes=>'sha256:'+createHash('sha256').update(bytes).digest('hex');
@@ -34,6 +34,15 @@ try {
   assert.equal(result.bytes,config.length+layer.length);assert.equal(result.files.length,2);
   for(const file of result.files)assert.equal(await sha256(path.join(temp,file.path)),file.sha256);
   assert.equal(await readFile(path.join(temp,result.files.find(f=>f.role==='image-manifest').path),'utf8'),raw);
+  const imported={kind:'package',status:'passed',sourceCommit,runId,provider,artifacts:{...result,files:result.files.map(file=>({...file,evidenceFile:file.path}))},evidence:result.files.map(file=>({file:file.path,sha256:file.sha256}))};
+  assert.equal((await verifyImportedOci(imported,{base:temp})).verified,true);
+  const forgedCurrent=structuredClone(imported);forgedCurrent.sourceCommit='b'.repeat(40);forgedCurrent.runId='forged-current-run';forgedCurrent.artifacts.nativeBuild.sourceCommit=forgedCurrent.sourceCommit;forgedCurrent.artifacts.nativeBuild.runId=forgedCurrent.runId;
+  await assert.rejects(verifyImportedOci(forgedCurrent,{base:temp}),/retained native proof differs/);
+  await assert.rejects(verifyImportedOci({...imported,artifacts:{...imported.artifacts,files:imported.artifacts.files.filter(f=>f.role!=='image-manifest')}},{base:temp}),/retained raw manifest/);
+  await assert.rejects(verifyImportedOci({...imported,artifacts:{...imported.artifacts,files:imported.artifacts.files.map(f=>({...f,evidenceFile:undefined}))}},{base:temp}),/evidenceFile/);
+  await assert.rejects(verifyImportedOci({...imported,evidence:[]},{base:temp}),/exact result evidence/);
+  await assert.rejects(verifyImportedOci({...imported,artifacts:{...imported.artifacts,bytes:result.bytes+1}},{base:temp}),/summary differs/);
+  await assert.rejects(verifyImportedOci({...imported,artifacts:{...imported.artifacts,nativeBuild:{...result.nativeBuild,imageId:'sha256:'+'f'.repeat(64)}}},{base:temp}),/manifest config/);
   const cacheEvidence={runId,sourceCommit,scenario:'package-node',provider,appId:'sample-app',series:'clean',proofFile:'cache-proof.json',proofSHA:'b'.repeat(64)};
   assert.equal(validateRecord({schemaVersion:1,kind:'package',status:'passed',scenario:'package-node',provider,runId,appId:'sample-app',sourceCommit,startedAt:'2026-10-10T12:00:00.000Z',finishedAt:'2026-10-10T12:00:01.000Z',durationMs:1000,toolVersion:{reported:'test'},environment:{},cacheEvidence,evidence:[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}],artifacts:result}).artifacts.bytes,result.bytes);
   await assert.rejects(collectArtifacts(spec,temp,{...attempt,sourceCommit:'b'.repeat(40)}),/source, run or provider/);
@@ -65,6 +74,8 @@ try {
   const observer=async(argv,options)=>{if(argv[0]==='observe-native-image'){assert.equal(options.env.BENCH_RUN_ID,runId);assert.equal(options.env.BENCH_SOURCE_COMMIT,sourceCommit);return {exitCode:0,stdout:JSON.stringify(native)};}return runCommand(argv,options);};
   const observed=await collectArtifacts(observedSpec,temp,{...attempt,runCommand:observer});
   assert.equal(observed.manifestDigest,imageDigest);assert.equal(observed.reference,'registry.example.invalid/bench/api@'+imageDigest);assert.equal(observed.files.length,3);
+  const registryImport={...imported,artifacts:{...observed,files:observed.files.map(file=>({...file,evidenceFile:file.path}))},evidence:observed.files.map(file=>({file:file.path,sha256:file.sha256}))};
+  assert.equal((await verifyImportedOci(registryImport,{base:temp})).verified,true);
   await writeFile(path.join(temp,'index.json'),indexRaw);
   await assert.rejects(readCompressedImage({manifestPath:path.join(temp,'index.json'),expectedDigest:imageDigest}),/Local input is an image index/);
   await assert.rejects(readCompressedImage({reference,expectedConfigDigest:digest(config)},{runCommand:async()=>({exitCode:0,stdout:raw})}),/pinned manifest digest/);
