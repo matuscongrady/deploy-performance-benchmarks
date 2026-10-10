@@ -73,6 +73,7 @@ async function configuration({qualified=false}={}) {
     await checkQualification(qualification,scenario,provider);
     if(qualification.appId!==appId||qualification.environment.region!==region||qualification.stage!==stage)throw Error('Qualification must match the existing application ID, stage and region');
     if(!/^\d{12}$/.test(qualification.environment.accountId||''))throw Error('Qualification needs the disposable AWS account ID');
+    if(requireValue('BENCH_AWS_ROLE_ARN').split(':')[4]!==qualification.environment.accountId)throw Error('OIDC role account differs from the qualified disposable account');
     validateExistingApplication(qualification,provider);
     if(qualification.pipeline?.branch!==branch||qualification.pipeline?.sourceCommit!==sourceCommit||!qualification.pipeline?.configurationEvidence)throw Error('Qualification must match the exact pushed branch and source commit');
     if(qualification.pipeline.workflowSha256!==await sha256(path.join(root,'.github/workflows/deploy-benchmark.yml')))throw Error('Qualification must bind the reviewed deployment workflow SHA-256');
