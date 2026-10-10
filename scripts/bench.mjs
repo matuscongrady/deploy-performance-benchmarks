@@ -94,7 +94,8 @@ try {
     for(const artifact of artifacts.files||[])if(artifacts.format==='oci-compressed'){
       const file=path.join(evidenceDir,'artifacts',artifact.path);await mkdir(path.dirname(file),{recursive:true});
       await copyFile(path.resolve(plan.cwd,artifact.path),file,constants.COPYFILE_EXCL);
-      evidence.push({file:path.relative(root,file),sha256:artifact.sha256});
+      artifact.evidenceFile=path.relative(root,file);
+      evidence.push({file:artifact.evidenceFile,sha256:artifact.sha256});
     }
     for(const log of logs) for(const file of [log.stdoutFile,log.stderrFile]) evidence.push({file:path.relative(root,file),sha256:await sha256(file)});
     const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt:scenario.kind==='package'?commandFinishedAt:finishedAt,durationMs:scenario.kind==='package'?commandDurationMs:finish-start,commandDurationMs,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
@@ -107,16 +108,28 @@ try {
     if(!record.qualificationFile)throw Error('Imported results require a reviewed qualificationFile');
     const {checkQualification}=await import('./qualification.mjs');const qualification=await json(path.resolve(root,record.qualificationFile));await checkQualification(qualification,scenario,record.provider);
     if(record.stage!==qualification.stage||record.appId!==qualification.appId||record.environment.region!==qualification.environment.region||record.status==='passed'&&record.cacheEvidence.series!==qualification.cacheEvidence.series||record.toolVersion.reported!==qualification.toolVersion.reported||record.toolVersion.sha256!==qualification.toolVersion.sha256)throw Error('Imported application/version/environment/cache metadata differs from qualification');
+    const contains=(actual,want)=>Array.isArray(want)?Array.isArray(actual)&&actual.length===want.length&&want.every((v,i)=>contains(actual[i],v)):want&&typeof want==='object'?actual&&Object.entries(want).every(([k,v])=>contains(actual[k],v)):actual===want;
     if(record.status==='passed'&&record.kind==='deploy'){
       for(const expectedProbe of qualification.probes){const observation=record.readiness.observations.find(o=>o.name===expectedProbe.name);const expected=structuredClone(expectedProbe.expected);if(expectedProbe.body&&Object.hasOwn(expectedProbe.body,'jobId'))delete expected.jobId;
-        const contains=(actual,want)=>Array.isArray(want)?Array.isArray(actual)&&actual.length===want.length&&want.every((v,i)=>contains(actual[i],v)):want&&typeof want==='object'?actual&&Object.entries(want).every(([k,v])=>contains(actual[k],v)):actual===want;
         if(!observation||!contains(observation.observed,expected))throw Error('Imported business response differs from qualification: '+expectedProbe.name);
       }
     }
-    if(record.status==='passed'&&record.kind==='package'&&scenario.fixture.startsWith('lambda-')){const names=qualification.artifacts.files.filter(f=>(f.role||'function')==='function').map(f=>f.name).sort();if(JSON.stringify(record.artifacts.files.filter(f=>f.role==='function').map(f=>f.name).sort())!==JSON.stringify(names))throw Error('Imported function artifacts differ from qualification');}
+    if(record.status==='passed'&&record.kind==='package') {
+      if(record.artifacts.format!==qualification.artifacts.format)throw Error('Imported artifact format differs from qualification');
+      if(scenario.fixture.startsWith('lambda-')){const names=qualification.artifacts.files.filter(f=>(f.role||'function')==='function').map(f=>f.name).sort();if(JSON.stringify(record.artifacts.files.filter(f=>f.role==='function').map(f=>f.name).sort())!==JSON.stringify(names))throw Error('Imported function artifacts differ from qualification');}
+    }
     for(const item of qualification.qualificationEvidence)if(await sha256(path.resolve(root,item.file))!==item.sha256)throw Error('Qualification evidence checksum mismatch');
     if(record.status==='passed'){const proof=await readCacheEvidence(record.cacheEvidence.proofFile,record.cacheEvidence);if(proof.proofSHA!==record.cacheEvidence.proofSHA)throw Error('Cache proof checksum differs from imported record');if(JSON.stringify(proof)!==JSON.stringify(record.cacheEvidence))throw Error('Imported cache evidence differs from its immutable proof');}
     for(const item of record.evidence) { if(!item.file||!item.sha256) throw Error('Evidence requires file and SHA256'); if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Evidence checksum mismatch: '+item.file); }
+    if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='oci-compressed') {
+      if(record.artifacts.name!==qualification.artifacts.images[0].name)throw Error('Imported OCI image differs from the selected qualified application');
+      const {verifyImportedOci}=await import('./sizes.mjs');await verifyImportedOci(record);
+    }
+    if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='provider-native') {
+      const {verifyImportedNativePackage}=await import('./lib.mjs');await verifyImportedNativePackage(record);
+      const observation=record.artifacts.businessVerification.observations[0];
+      if(record.artifacts.name!==qualification.artifacts.name||!contains(observation.observed,qualification.artifacts.businessExpected))throw Error('Imported native API business response differs from qualification');
+    }
     await saveResult(path.join(root,'results/raw',record.runId+'-'+record.provider+'.json'),record); console.log('Recorded '+record.runId);
   } else { console.log('Commands: list | describe TEST | prepare TEST PROVIDER [--run-id ID] | run TEST PROVIDER --execute --qualification FILE | record-managed FILE'); if(operation) process.exitCode=1; }
 } catch(e) { console.error(e.message); process.exitCode=1; }

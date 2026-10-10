@@ -13,6 +13,16 @@ export async function checkQualification(q,scenario,provider) {
       if(!a||a.qualified!==true||a.format!=='lambda-zip'||a.functionCount!==names.length||!Array.isArray(a.files))throw Error('Packaging qualification needs every selected function ZIP');
       const functions=a.files.filter(f=>(f.role||'function')==='function');if(functions.length!==names.length||names.some(name=>functions.filter(f=>f.name===name).length!==1))throw Error('Packaging qualification is missing selected function ZIPs');
       if(functions.some(f=>!/^[\w./-]+\.[\w$]+$/.test(f.handler||'')||!/^[\w./-]+\.(mjs|cjs|js)$/.test(f.module||'')))throw Error('Every qualified ZIP needs its actual runtime handler and module filename');
+    } else {
+      const a=q.artifacts;
+      if(!a||a.qualified!==true||!['oci-compressed','heroku-slug','provider-native'].includes(a.format))throw Error('Container packaging needs a qualified native artifact format');
+      if(a.format==='oci-compressed'&&(!Array.isArray(a.images)||a.images.length!==1||a.images[0].name!=='api'||!a.nativeBuild||Boolean(a.nativeBuild.file)===Boolean(a.nativeBuild.argv)))throw Error('Container packaging needs exactly the selected API image and one native identity producer');
+      if(a.format==='heroku-slug'&&(provider!=='heroku'||!Array.isArray(a.files)||a.files.length!==1||a.files[0].name!=='api'))throw Error('Slug qualification needs the selected Heroku API artifact');
+      if(a.format==='provider-native'&&(!['render','ravion','heroku'].includes(provider)||a.name!=='api'||a.sizeAvailable!==false))throw Error('Time-only packaging qualification needs the selected managed API and unavailable size');
+      if(a.format==='provider-native') {
+        const m=await json(path.join(root,'fixtures/manifest.json')),expected=m.containers.find(c=>c.id==='container-'+scenario.fixture).businessProbe.expected;
+        if(!contains(a.businessExpected,expected)||typeof a.businessExpected?.revision!=='string'||!a.businessExpected.revision)throw Error('Time-only packaging needs the full API business assertion and current source revision');
+      }
     }
   }
   if(scenario.kind==='deploy') {

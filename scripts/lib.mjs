@@ -121,7 +121,7 @@ function validateProviderNativePackage(record) {
   const a=record.artifacts,n=a?.nativeBuild;
   if(record.kind!=='package'||!['package-node','package-python'].includes(record.scenario)||!['render','ravion','heroku'].includes(record.provider)||a?.name!=='api'||a.complete!==true||a.bytes!==null||a.sizeAvailable!==false)throw Error('Provider-native timing is only available for the selected managed container API with unavailable size');
   for(const key of ['runId','sourceCommit','scenario','appId','provider'])if(!record[key]||n?.[key]!==record[key])throw Error('Provider-native build differs from current '+key);
-  if(typeof n.nativeBuildId!=='string'||!n.nativeBuildId.trim()||!n.evidenceFile||!/^[a-f0-9]{64}$/.test(n.evidenceSHA||'')||!record.evidence?.some(e=>e.file===n.evidenceFile&&e.sha256===n.evidenceSHA))throw Error('Provider-native build needs its ID and exact retained evidence binding');
+  if(typeof n.nativeBuildId!=='string'||!n.nativeBuildId.trim()||typeof n.evidenceFile!=='string'||!n.evidenceFile||path.isAbsolute(n.evidenceFile)||n.evidenceFile.split(/[\\/]/).includes('..')||!/^[a-f0-9]{64}$/.test(n.evidenceSHA||'')||record.evidence?.filter(e=>e.file===n.evidenceFile&&e.sha256===n.evidenceSHA).length!==1)throw Error('Provider-native build needs its ID and exact root-relative retained evidence binding');
   const phase=n.phase;
   if(phase?.status!=='succeeded'||phase.startedAt!==record.startedAt||phase.finishedAt!==record.finishedAt)throw Error('Provider-native timing must be the successful native build phase');
   const business=a.businessVerification,observations=business?.observations;
@@ -132,7 +132,8 @@ export async function verifyImportedNativePackage(record,{base=root}={}) {
   if(record.artifacts?.format!=='provider-native')return;
   validateRecord(record);
   if(record.status!=='passed')throw Error('Provider-native proof admission requires a passed record');
-  const native=record.artifacts.nativeBuild,file=path.resolve(base,native.evidenceFile);
+  const native=record.artifacts.nativeBuild,basePath=await realpath(base),file=await realpath(path.resolve(basePath,native.evidenceFile)),relative=path.relative(basePath,file);
+  if(relative.startsWith('..')||path.isAbsolute(relative))throw Error('Provider-native proof is outside the result repository');
   if(await sha256(file)!==native.evidenceSHA)throw Error('Provider-native evidence checksum mismatch');
   const proof=await json(file);
   if(proof.schemaVersion!==1)throw Error('Invalid provider-native evidence schema');

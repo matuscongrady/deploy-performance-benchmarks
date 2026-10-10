@@ -59,4 +59,6 @@ SST and CDK have native Docker image builders. Their standard ECS service paths 
 
 Heroku’s generation and account plan must be selected before testing. Classic builds produce slugs; Cloud Native Buildpacks can produce container images. We will not put unlike artifact formats in the same size ranking.
 
+If a platform exposes build time but hides its artifact size, it can appear in the speed chart. Its size stays unavailable.
+
 There are no measured results yet. [Measurement rules](docs/methodology.md) define which records qualify. [The result format](docs/results.md) lets another person check or repeat a run without relying on this conversation.
