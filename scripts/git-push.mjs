@@ -2,7 +2,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import {mkdir} from 'node:fs/promises';
-import {root,json,saveResult,refuseExistingResult,scenarioById,parseArgs,safeId,command,sha256,validateRecord} from './lib.mjs';
+import {root,json,saveResult,refuseExistingResult,scenarioById,parseArgs,safeId,command,sha256,validateRecord,requireGitCacheObserver,bindGitCacheEvidence,finishGitVerification} from './lib.mjs';
 import {checkQualification} from './qualification.mjs';
 import {probe} from './probe.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
@@ -18,6 +18,7 @@ try {
   const sourceCommit=(await command(['git','rev-parse','HEAD'])).stdout.trim();
   const q=await json(flags.qualification);await checkQualification(q,scenario,provider);
   if(!Array.isArray(q.pipeline?.completion?.argv)||!q.pipeline.completion.argv.length)throw Error('Qualification must bind a native pipeline completion observer');
+  requireGitCacheObserver(q);
   if(q.pipeline?.branch!==branch||q.pipeline?.sourceCommit!==sourceCommit||!q.pipeline?.configurationEvidence)throw Error('Qualification must identify the configured trigger branch, commit and workflow/pipeline evidence');
   for(const item of q.qualificationEvidence)if(await sha256(path.resolve(root,item.file))!==item.sha256)throw Error('Qualification evidence checksum mismatch');
   if(scenario.journey==='git-repeat') {const previous=Date.parse(q.previousReadyAt);if(!Number.isFinite(previous)||Date.now()-previous<900000)throw Error('The previous verified deployment must have finished at least 15 minutes ago');}
@@ -33,11 +34,18 @@ try {
   if(pushed.exitCode!==0){statusValue='failed';failure='Git push failed';}
   else {try{readiness=await probe(q.probes,{timeoutMs:q.timeoutMs||1800000});}catch(e){statusValue='failed';failure=e.message;}}
   const durationMs=performance.now()-start,finishedAt=new Date().toISOString();
-  let reuse;if(statusValue==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(q.componentSnapshots));}catch(e){statusValue='failed';failure=e.message;}}
-  let pipelineCompletion;
-  if(statusValue==='passed'){try{const {waitForPipeline}=await import('./pipeline-completion.mjs');pipelineCompletion=await waitForPipeline(q.pipeline.completion,sourceCommit,{timeoutMs:q.timeoutMs||1800000});}catch(e){statusValue='failed';failure=e.message;}}
+  let pipelineCompletion,reuse,cacheEvidence;
+  if(statusValue==='passed'){try{
+    const {waitForPipeline}=await import('./pipeline-completion.mjs');
+    const {captureComponents,compareUnchanged}=await import('./component-state.mjs');
+    const verified=await finishGitVerification({wait:()=>waitForPipeline(q.pipeline.completion,sourceCommit,{timeoutMs:q.timeoutMs||1800000}),before:componentsBefore,capture:scenario.fixture==='five-services'?()=>captureComponents(q.componentSnapshots):undefined,compare:compareUnchanged});
+    ({pipelineCompletion,reuse}=verified);
+    cacheEvidence=await bindGitCacheEvidence({q,identity:{runId,sourceCommit,scenario:id,provider,appId:q.appId,series:q.cacheEvidence.series},completion:pipelineCompletion});
+  }catch(e){statusValue='failed';failure=e.message;}}
   const completionFile=path.join(dir,'pipeline-completion.json');const {save}=await import('./lib.mjs');await save(completionFile,{pipelineCompletion,failure});
-  const record={schemaVersion:1,kind:'deploy',scenario:id,provider,runId,appId:q.appId,stage:q.stage,status:statusValue,failure,sourceCommit,startedAt,finishedAt,durationMs,commandDurationMs:pushed.durationMs,baseline,readiness,reuse,toolVersion:q.toolVersion,environment:{runner:os.hostname(),...q.environment},settings:q.settings,cacheEvidence:q.cacheEvidence,pipeline:q.pipeline,pipelineCompletion,evidence:await Promise.all([stdoutFile,stderrFile,completionFile].map(async file=>({file:path.relative(root,file),sha256:await sha256(file)})))};
+  const evidence=await Promise.all([stdoutFile,stderrFile,completionFile].map(async file=>({file:path.relative(root,file),sha256:await sha256(file)})));
+  if(cacheEvidence)evidence.push({file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA},cacheEvidence.nativeEvidence);
+  const record={schemaVersion:1,kind:'deploy',scenario:id,provider,runId,appId:q.appId,stage:q.stage,status:statusValue,failure,sourceCommit,startedAt,finishedAt,durationMs,commandDurationMs:pushed.durationMs,baseline,readiness,reuse,toolVersion:q.toolVersion,timerHost:{host:os.hostname(),platform:os.platform(),node:process.version},environment:{...q.environment,runner:cacheEvidence?.runner,cpu:cacheEvidence?.runner?.cpu,cores:cacheEvidence?.runner?.cores,memoryBytes:cacheEvidence?.runner?.memoryBytes,arch:cacheEvidence?.runner?.arch,node:cacheEvidence?.runner?.node,platform:cacheEvidence?.runner?.platform},settings:q.settings,cacheEvidence,pipeline:q.pipeline,pipelineCompletion,evidence};
   validateRecord(record);await saveResult(resultFile,record);
   console.log(JSON.stringify(record,null,2));if(statusValue!=='passed')process.exitCode=1;
 } catch(e){console.error(e.message);process.exitCode=1;}

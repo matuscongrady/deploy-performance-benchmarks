@@ -2,7 +2,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import {mkdir,readFile} from 'node:fs/promises';
-import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord} from './lib.mjs';
+import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord,readCacheEvidence} from './lib.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
 const [operation,id,provider]=positional;
 try {
@@ -44,9 +44,17 @@ try {
     const dirty=await command(['git','status','--porcelain']); if(dirty.stdout.trim()) throw Error('Commit all source changes before timing');
     const commands=plan.commands[scenario.kind==='package'?'package':'update'];
     if(!Array.isArray(commands)||!commands.length) throw Error('No executable native command for this measurement');
+    if(!flags['cache-evidence'])throw Error('Timed runs require --cache-evidence FILE captured for this attempt');
+    const cacheEvidence=await readCacheEvidence(flags['cache-evidence'],{runId,sourceCommit:git.stdout.trim(),scenario:id,provider,appId,series:qualification.cacheEvidence.series},{beforeTimer:true});
+    if(cacheEvidence.mode!=='local')throw Error('CLI runs require local cache observations');
+    const defaults={serverless:['.serverless'],cdk:['cdk.out','package-artifacts'],sst:['.sst/artifacts','package-artifacts']};
+    const paths=qualification.cacheControl?.localPaths||defaults[provider];
+    if(JSON.stringify(cacheEvidence.paths.map(p=>p.path))!==JSON.stringify(paths))throw Error('Observed cache paths differ from qualified native paths');
+    if(cacheEvidence.nativeClean&&JSON.stringify(cacheEvidence.nativeClean)!==JSON.stringify(qualification.cacheControl?.nativeClean))throw Error('Native clean control differs from qualification');
+    if(cacheEvidence.series==='clean'&&cacheEvidence.nativeClean?.verified){const {env={}}=cacheEvidence.nativeClean;for(const [key,value]of Object.entries(env))if((plan.env?.[key]??process.env[key])!==value)throw Error('Qualified native no-cache environment is missing: '+key);if(!Object.keys(env).length)throw Error('Native clean control requires a qualified no-cache environment');}
+    const evidenceDir=path.join(root,'.work','evidence',runId,provider);await mkdir(evidenceDir,{recursive:true});
     const startedAt=new Date().toISOString(),start=performance.now();
     const logs=[]; let status='passed',failure;
-    const evidenceDir=path.join(root,'.work','evidence',runId,provider);await mkdir(evidenceDir,{recursive:true});
     for(let i=0;i<commands.length;i++) {
       const stdoutFile=path.join(evidenceDir,`command-${i}.stdout.log`),stderrFile=path.join(evidenceDir,`command-${i}.stderr.log`);
       const result=await command(commands[i],{cwd:plan.cwd,env:plan.env||{},stdoutFile,stderrFile});
@@ -76,9 +84,9 @@ try {
     const finish=performance.now(),finishedAt=new Date().toISOString();
     let reuse;
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
-    const evidence=[];
+    const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
     for(const log of logs) for(const file of [log.stdoutFile,log.stderrFile]) evidence.push({file:path.relative(root,file),sha256:await sha256(file)});
-    const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt:scenario.kind==='package'?commandFinishedAt:finishedAt,durationMs:scenario.kind==='package'?commandDurationMs:finish-start,commandDurationMs,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem(),...qualification.environment},cacheEvidence:qualification.cacheEvidence,settings:qualification.settings,evidence,commands:logs};
+    const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt:scenario.kind==='package'?commandFinishedAt:finishedAt,durationMs:scenario.kind==='package'?commandDurationMs:finish-start,commandDurationMs,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
     validateRecord(record); await saveResult(resultFile,record);
     console.log(JSON.stringify(record,null,2)); if(status!=='passed') process.exitCode=1;
   } else if(operation==='record-managed') {
@@ -86,7 +94,7 @@ try {
     const scenario=await scenarioById(record.scenario);if(!scenario.providers.includes(record.provider))throw Error('Provider is not supported by this test');if(record.kind!==scenario.kind)throw Error('Record kind differs from selected test');safeId(record.provider);safeId(record.runId);
     if(!record.qualificationFile)throw Error('Imported results require a reviewed qualificationFile');
     const {checkQualification}=await import('./qualification.mjs');const qualification=await json(path.resolve(root,record.qualificationFile));await checkQualification(qualification,scenario,record.provider);
-    if(record.stage!==qualification.stage||record.appId!==qualification.appId||record.environment.region!==qualification.environment.region||record.cacheEvidence.series!==qualification.cacheEvidence.series||record.toolVersion.reported!==qualification.toolVersion.reported||record.toolVersion.sha256!==qualification.toolVersion.sha256)throw Error('Imported application/version/environment/cache metadata differs from qualification');
+    if(record.stage!==qualification.stage||record.appId!==qualification.appId||record.environment.region!==qualification.environment.region||record.status==='passed'&&record.cacheEvidence.series!==qualification.cacheEvidence.series||record.toolVersion.reported!==qualification.toolVersion.reported||record.toolVersion.sha256!==qualification.toolVersion.sha256)throw Error('Imported application/version/environment/cache metadata differs from qualification');
     if(record.status==='passed'&&record.kind==='deploy'){
       for(const expectedProbe of qualification.probes){const observation=record.readiness.observations.find(o=>o.name===expectedProbe.name);const expected=structuredClone(expectedProbe.expected);if(expectedProbe.body&&Object.hasOwn(expectedProbe.body,'jobId'))delete expected.jobId;
         const contains=(actual,want)=>Array.isArray(want)?Array.isArray(actual)&&actual.length===want.length&&want.every((v,i)=>contains(actual[i],v)):want&&typeof want==='object'?actual&&Object.entries(want).every(([k,v])=>contains(actual[k],v)):actual===want;
@@ -95,6 +103,7 @@ try {
     }
     if(record.status==='passed'&&record.kind==='package'&&scenario.fixture.startsWith('lambda-')){const names=qualification.artifacts.files.filter(f=>(f.role||'function')==='function').map(f=>f.name).sort();if(JSON.stringify(record.artifacts.files.filter(f=>f.role==='function').map(f=>f.name).sort())!==JSON.stringify(names))throw Error('Imported function artifacts differ from qualification');}
     for(const item of qualification.qualificationEvidence)if(await sha256(path.resolve(root,item.file))!==item.sha256)throw Error('Qualification evidence checksum mismatch');
+    if(record.status==='passed'){const proof=await readCacheEvidence(record.cacheEvidence.proofFile,record.cacheEvidence);if(proof.proofSHA!==record.cacheEvidence.proofSHA)throw Error('Cache proof checksum differs from imported record');if(JSON.stringify(proof)!==JSON.stringify(record.cacheEvidence))throw Error('Imported cache evidence differs from its immutable proof');}
     for(const item of record.evidence) { if(!item.file||!item.sha256) throw Error('Evidence requires file and SHA256'); if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Evidence checksum mismatch: '+item.file); }
     await saveResult(path.join(root,'results/raw',record.runId+'-'+record.provider+'.json'),record); console.log('Recorded '+record.runId);
   } else { console.log('Commands: list | describe TEST | prepare TEST PROVIDER [--run-id ID] | run TEST PROVIDER --execute --qualification FILE | record-managed FILE'); if(operation) process.exitCode=1; }

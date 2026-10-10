@@ -12,14 +12,14 @@ Required fields:
 | `startedAt`, `finishedAt`, `durationMs` | Observed timer boundaries and elapsed milliseconds |
 | `commandDurationMs` | Optional native command elapsed time; not deployment readiness |
 | `toolVersion` | Reported CLI/builder version; candidate binary SHA256/source reference |
-| `environment` | Runner/plan, CPU/memory, runtime, region and hardware, where exposed |
+| `environment`, `timerHost` | Actual builder/CI runner capacity and region; Git push timing machine is recorded separately |
 | `settings` | Builder, minification, external dependencies, hotswap/fallback and rollout behavior |
-| `cacheEvidence` | Clean or repeat series, runner identity, reset/restore controls and hit/miss evidence |
+| `cacheEvidence` | Per-attempt test/app/provider/run/source/series binding, observed controls, `proofFile` and `proofSHA` |
 | `evidence` | Relative log/artifact paths and SHA256 checksums |
 | `readiness` | Deployment business probe responses with correct revisions |
 | `artifacts` | Packaging’s complete artifact set, format, sizes and hashes |
 
-For a deployment, `readiness.verified` must be true, with observations of every selected component. For five services, three observations have the new revision and two have the baseline revision. Also retain the baseline commit and response evidence. Five-service records require `reuse.verified: true` and native before/after identity observations for inventory and webhooks, including artifact IDs, deployment ID and configuration hash. Version probes alone cannot establish that those services were reused. A managed build needs build ID, phase timestamps and complete log evidence. Git journeys need the pushed SHA and local push start, plus `pipelineCompletion` showing native terminal success for that SHA. The completion check runs after the business readiness timer. A failed pipeline cannot qualify a result even if a changed function briefly answered correctly.
+For a deployment, `readiness.verified` must be true, with observations of every selected component. For five services, three observations have the new revision and two have the baseline revision. Also retain the baseline commit and response evidence. Five-service records require `reuse.verified: true` and native before/after identity observations for inventory and webhooks, including artifact IDs, deployment ID and configuration hash. Version probes alone cannot establish that those services were reused. A managed build needs build ID, phase timestamps and complete log evidence. Git journeys need the pushed SHA and local push start, plus `pipelineCompletion` showing native terminal success for that SHA. The completion check runs after the business readiness timer. The five-service after snapshot runs only after successful native pipeline completion, so a later replacement cannot escape the unchanged-service check. A failed pipeline cannot qualify a result even if a changed function briefly answered correctly.
 
 A local Lambda artifact qualification looks like:
 
@@ -51,3 +51,8 @@ node scripts/oci-size.mjs --image QUALIFIED_REGISTRY_IMAGE \
 It selects the runnable platform image, excludes attestations and sums unique config/compressed layer blobs. Keep its `image-manifest.json` and `size.json` as evidence. For a local downloaded manifest, use `--manifest FILE --expected-digest sha256:DIGEST` instead of `--image`. A local uncompressed Docker image or an OCI index without a selected child manifest is rejected. Registry access is read-only but requires the appropriate login for a private image.
 
 Imported records also need `qualificationFile`, pointing to their reviewed ignored qualification JSON. The importer validates the scenario/provider, artifact shape, component observations, duration boundaries and evidence hashes.
+
+
+Every passed record needs an immutable cache-control JSON proof and a matching entry in `evidence` with the same path and SHA256. The proof identifies `runId`, `sourceCommit`, `scenario`, `provider`, `appId` and `series`. Local records are captured with `cache.mjs` and passed to the timed runner using `--cache-evidence FILE`; qualification's `cacheEvidence.series` declares policy, not observed proof. Git records obtain their proof after native completion from the exact CI artifact or hosted evidence observer. Importing a result checks proof contents, native observer identities and hashes as well as the record fields. A wrong attempt, stale commit or static cache declaration cannot pass.
+
+For GitHub Actions, the cache proof includes the completed native run ID and attempt, observed cache request/restore/exact-hit flags and actual runner. The record flattens observed CPU, cores, memory, architecture and Node version for capacity grouping; unavailable measurements remain unavailable. `timerHost` describes the local push timer and never substitutes for build capacity. Cache restoration alone does not prove compiler or image-layer reuse.
