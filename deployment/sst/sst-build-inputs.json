@@ -1,0 +1,18 @@
+[
+  {
+    "dev": false,
+    "functionID": "report",
+    "handler": "../../fixtures/lambdas/handlers/report.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {
+        "pdfkit": "*",
+        "exceljs": "*",
+        "docx": "*"
+      }
+    }
+  }
+]
