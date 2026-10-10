@@ -1,99 +1,90 @@
-# Run a test
+# Run: Package five commerce functions
 
-No cloud benchmark has been run from this repository. Prepare and review a campaign before enabling CI or executing deployment commands.
+This application has 5 different commerce functions. The update changes all 5 selected functions.
 
-## 1. Choose the branch and install the fixtures
+## Check out and exercise the selected application
 
 ```sh
-git clone https://github.com/matuscongrady/deploy-performance-benchmarks.git
-cd deploy-performance-benchmarks
-git checkout test/deploy-lambda-5-cli
+git checkout test/package-lambda-5
 node fixtures/install.mjs
 node scripts/check.mjs
+git switch -c trial/lambda-5-candidate-001
 ```
 
-Installation uses npm lockfiles and hash-checked Python requirements. Python checks use `uv`, which installs Python 3.11.14 in user space. Install `uv` using its [official instructions](https://docs.astral.sh/uv/getting-started/installation/). `--node-only` on the fixture scripts intentionally excludes Python; it is not a complete check.
+The installation and checks use only this branch's selected application. They make no cloud requests. Each selected function exports `handler(event)`. Direct Lambda invocation verifies the business result; an API Gateway is not required.
 
-Read `TEST.md`. It is the selected test’s instructions, not a record of a previous run. Create a separate trial branch for each provider before changing source. This example uses Serverless Framework:
+## Prepare one platform
+
+This branch supports candidate, serverless, sst, cdk. The commands below use candidate; replace it consistently when running another supported platform. Create a separate trial branch for each provider, and connect each managed platform only to its own branch. A push for one provider must not start another provider’s build or change its caches. Follow [provider setup](provider-setup.md), including its pinned tools and any account/artifact prerequisites.
 
 ```sh
-git switch -c trial/lambda-five-serverless-001
+node scripts/bench.mjs prepare package-lambda-5 candidate \
+  --app-id commerce-lambda-5 --run-id review-001
 ```
 
-## 2. Prepare the provider
+Read `.work/commerce-lambda-5/candidate/plan.json`. Preparation writes source/configuration and argv command lists; it does not run them. Run the generated tool/dependency installation commands outside the timer. Qualify the complete native artifacts and run their business checks before accepting measurements. Packaging stops before upload or deployment; any infrastructure used to establish artifact parity belongs to untimed qualification.
 
-Use [provider setup](provider-setup.md). Pin the candidate executable with `CANDIDATE_CLI`; keep its download/source reference, version and SHA256. Do not benchmark an unidentified local binary. Install each competitor’s tools with its checked-in lockfile. Record the actual version reported by the CLI as well as the package version.
+## Qualify the result and keep bindings local
+
+Copy the [qualification example](qualification.example.json) into `.work/commerce-lambda-5/candidate/qualification.json`. Set scenario to `package-lambda-5`, provider to `candidate`, appId to `commerce-lambda-5` and stage to the baseline's stage. Replace its example fields with this application's observed versions, cache evidence and artifact/runtime checks. The [selected manifest](../fixtures/manifest.json) is the source of required component names, requests and business expectations.
+
+Supply every selected function ZIP and any required shared layer. See [result data](results.md) for the qualified artifact fields. Do not substitute a JavaScript bundle or a directory.
+
+For AWS operations, bind environment.accountId to the verified disposable account. Keep tokens, resource IDs and endpoints in ignored qualification state. Set approved only after the technical checks; that flag does not authorize a campaign.
+
+## Measure the clean build first
+
+Keep the baseline source for this first attempt. Set the qualification's cacheEvidence.series to `clean`. The cache-control command resets only qualified owned output/cache paths; it keeps an immutable record of the action.
 
 ```sh
-node scripts/bench.mjs prepare deploy-lambda-5-cli serverless --app-id commerce-five --run-id five-001
+node scripts/cache.mjs candidate --scenario package-lambda-5 \
+  --app-id commerce-lambda-5 --run-id clean-001 --series clean --qualification .work/commerce-lambda-5/candidate/qualification.json
+node scripts/bench.mjs run package-lambda-5 candidate \
+  --app-id commerce-lambda-5 --run-id clean-001 \
+  --qualification .work/commerce-lambda-5/candidate/qualification.json \
+  --cache-evidence .work/evidence/clean-001/candidate/cache-control.json --execute
 ```
 
-Read `.work/commerce-five/serverless/plan.json`. It contains the working directory, native commands, settings and prerequisites. Preparation never runs those commands. A plan marked `qualification-required`, `account-required` or `unsupported` must be resolved before measurement; changing a label in a file is not qualification.
+Complete this passed clean-build attempt before editing the source. Its raw result and retained cache/artifact files are prerequisites for the cached rebuild. 
 
-Execute the plan’s setup commands outside the timer. Use a disposable application with a unique neutral run ID. Check the AWS account/region or platform workspace before creating it. Save the cleanup commands and resource IDs immediately. Never store tokens in this repository.
-
-## 3. Qualify the measurement once
-
-For each provider/fixture, do an untimed end-to-end deployment. Invoke every selected handler or service with the fixture’s business input. Compare the response recursively with `fixtures/manifest.json`, including `revision: baseline`.
-
-For a packaging chart, also identify the complete uploaded ZIPs/layers or the compressed image manifest. Compare the artifact hashes with the native upload and verify the packaged code’s behavior. Establish the native build’s start/end boundary from actual logs. Record any bundling/minification/external dependency settings. This step is necessary even if `synth` or `package` succeeds.
-
-For deployment, save every native function name/service URL, baseline response and deployment ID. Test the runtime probe file before measuring. All five-service probes are required, including unchanged services. For that test, also supply five `componentSnapshots` commands in the qualification file. On ECS, use `node scripts/component-state.mjs ecs REGION CLUSTER SERVICE` for each service; generated native outputs provide the resource identities. On managed platforms, bind an equivalent native API/CLI observation to `{deploymentId, configurationHash, artifactIds}`. Save the adapter and raw responses. The runner verifies that inventory and webhooks retain the same deployed artifact, deployment and configuration. Native build/upload logs are still needed to determine whether any unnecessary build work occurred. Save whether the selected update path actually hotswapped or fell back to infrastructure deployment.
-
-For AWS deployments, set `environment.accountId` to the verified 12-digit disposable account ID. The timed runner checks the authenticated identity before starting. Set the qualification’s `appId` to the existing application’s `--app-id`. Copy `docs/qualification.example.json` into the ignored run directory and replace its values with observed evidence. The `approved` field means the measurement has been technically qualified. It does not grant account access or approve a benchmark campaign. Set it only after the checks above. For packaging, replace `probes` with a qualified `artifacts` object as described in [result data](results.md).
-
-## 4. Make the source change
+## Make and commit the prescribed edit
 
 ```sh
-node scripts/revision.mjs deploy-lambda-5-cli trial-001
+node scripts/revision.mjs package-lambda-5 trial-001
 git add fixtures
-git commit -m 'Update the five commerce functions for trial 001'
+git commit -m 'Change the selected application revision'
 ```
 
-This changes only selected revision files. All Lambda functions selected by this test change. For the five-service test, only API, reporting and notifications change. The business behavior stays the same.
+The update changes all 5 selected functions. The cached rebuild uses this committed edit and the preceding passed clean-build result.
 
-Keep the native application name, stage and region stable across setup and updates. Use the same `--app-id` when regenerating the native project from changed source. It keeps native resource names and build caches stable. Give every measured attempt a new `--run-id`; the run ID identifies evidence, not the application. Save the baseline source SHA and hashes of unchanged build contexts.
+## Measure the cached rebuild
 
-## 5. Measure
+Start immediately before the native package/build command. Stop when every deployable artifact is complete, before upload or deployment. Record compressed artifact size separately.
 
-For supported local packaging or CLI update plans:
+Set the qualification's cacheEvidence.series to `cached-source-edit`. The retained result must be the passed clean attempt from the preceding source commit.
 
 ```sh
-node scripts/cache.mjs serverless --scenario deploy-lambda-5-cli \
-  --app-id commerce-five --run-id five-001 --series cli-existing-cache
-node scripts/bench.mjs run deploy-lambda-5-cli serverless \
-  --app-id commerce-five --run-id five-001 --execute \
-  --qualification .work/commerce-five/serverless/qualification.json \
-  --cache-evidence .work/evidence/five-001/serverless/cache-control.json
+node scripts/cache.mjs candidate --scenario package-lambda-5 \
+  --app-id commerce-lambda-5 --run-id edited-001 --series cached-source-edit --qualification .work/commerce-lambda-5/candidate/qualification.json \
+  --retain-from results/raw/clean-001-candidate.json
+node scripts/bench.mjs run package-lambda-5 candidate \
+  --app-id commerce-lambda-5 --run-id edited-001 \
+  --qualification .work/commerce-lambda-5/candidate/qualification.json \
+  --cache-evidence .work/evidence/edited-001/candidate/cache-control.json --execute
 ```
 
-The cache command records this attempt's source commit and current owned cache paths. For packaging, use the clean-build and cached-source-edit commands in the selected branch's runbook instead. The runner requires the matching immutable cache record, saves native command logs, waits for runtime probes, and writes a result to `results/raw/`. It refuses an unqualified provider plan or dirty source tree. Run tool installation and baseline setup separately; the measured commands must not contain them.
+The runner executes only the selected native packaging/build command and retains its logs and result. Tool installation and baseline setup stay outside this interval.
 
-For Git push, configure each platform to follow only its own provider-specific trial branch and commit first. A push for another provider must not trigger this platform or change its caches. Add `pipeline.branch`, `pipeline.sourceCommit` and `pipeline.configurationEvidence` to the qualification file. Also bind `pipeline.completion.argv` to a native observer that returns `{sourceCommit, status, runId}` for the pushed SHA. `status` is `pending`, `succeeded`, `failed` or `cancelled`. For GitHub Actions use `node scripts/github-run.mjs OWNER/REPO PUSHED_SHA`; hosted platforms need the corresponding qualified native deployment observer. The runner checks successful terminal completion after the readiness timer stops, so a failed or still-running workflow cannot qualify a result. A repeat push also needs the previous verified `previousReadyAt`. Then use the push runner:
+Run one clean-cache series and one cached source-edit series. Keep the cache controls and raw logs.
 
-```sh
-node scripts/git-push.mjs deploy-lambda-5-git-cold serverless \
-  --run-id five-push-001 --qualification PATH_TO_QUALIFICATION --execute
-```
+Follow [measurement rules](methodology.md) and [cache controls](cache-controls.md). Record ten attempts, including errors, and use a unique run ID for each. [Result data](results.md) describes raw evidence and compressed artifact sizes.
 
-The push runner verifies the baseline, starts its clock before the actual push and waits for every business probe. It keeps the exact pushed SHA and saves a raw record. Capture native deployment/build IDs and logs alongside that record. For managed packaging, use build-phase events from those logs rather than the push-to-readiness duration. The repository includes a deployment workflow for candidate, Serverless Framework, SST and CDK. It stays disabled until `BENCH_CI_ENABLED=true`. Follow [CI setup](ci-setup.md) to bind the reviewed qualification, existing application, account and cache controls before timing a push. Hosted platforms use their native Git integration instead. The separate source-check workflow is not a deployment benchmark.
+## Finish the series
 
-Create the raw JSON record from those events using [the result format](results.md), then validate/import it with:
-
-```sh
-node scripts/bench.mjs record-managed path/to/observed-record.json
-```
-
-Use native build phase timing for packaging. Use push-to-business-readiness elapsed time for Git deployment. Never put a full managed deployment duration into the packaging chart.
-
-## 6. Repeat and clean up
-
-Follow the cache series and repetitions in [the measurement rules](methodology.md) and [cache controls](cache-controls.md). Use unique revisions. For the repeat-push test, wait 15 minutes after the preceding deployment passed every probe. Preserve failures and cache logs.
-
-Run the plan’s cleanup commands after the series, including on failures. Verify deletion in the provider/AWS account. Remove the temporary Git connection only after hosted test cleanup. Do not remove pre-existing account connections or applications.
+Retain native logs, actual build/cache decisions, source SHA and runtime checks. For cloud resources, run the saved cleanup commands after success or failure and verify deletion. 
 
 ```sh
 node scripts/results.mjs
 ```
 
-The report prints median/range and failure counts. It does not manufacture missing results. Review and sanitize raw evidence before publishing it on a results branch or release; retain enough IDs and logs to match timings to real deployments without exposing credentials.
+This reports recorded results and failures. Review and sanitize evidence before publishing it.
