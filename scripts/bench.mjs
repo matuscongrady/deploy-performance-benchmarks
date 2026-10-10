@@ -122,7 +122,8 @@ try {
     if(record.status==='passed'){const proof=await readCacheEvidence(record.cacheEvidence.proofFile,record.cacheEvidence);if(proof.proofSHA!==record.cacheEvidence.proofSHA)throw Error('Cache proof checksum differs from imported record');if(JSON.stringify(proof)!==JSON.stringify(record.cacheEvidence))throw Error('Imported cache evidence differs from its immutable proof');}
     for(const item of record.evidence) { if(!item.file||!item.sha256) throw Error('Evidence requires file and SHA256'); if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Evidence checksum mismatch: '+item.file); }
     if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='oci-compressed') {
-      if(record.artifacts.name!==qualification.artifacts.images[0].name)throw Error('Imported OCI image differs from the selected qualified application');
+      const selected=qualification.artifacts.images[0];
+      if(record.artifacts.name!==selected.name||record.artifacts.platform!==(qualification.artifacts.platform||'linux/amd64')||selected.expectedDigest&&record.artifacts.manifestDigest!==selected.expectedDigest)throw Error('Imported OCI image/platform/digest differs from qualification');
       const {verifyImportedOci}=await import('./sizes.mjs');await verifyImportedOci(record);
     }
     if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='provider-native') {
