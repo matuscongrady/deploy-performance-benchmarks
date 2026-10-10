@@ -59,12 +59,15 @@ Keep the native application name, stage and region stable across setup and updat
 For supported local packaging or CLI update plans:
 
 ```sh
+node scripts/cache.mjs serverless --scenario deploy-lambda-5-cli \
+  --app-id commerce-five --run-id five-001 --series cli-existing-cache
 node scripts/bench.mjs run deploy-lambda-5-cli serverless \
   --app-id commerce-five --run-id five-001 --execute \
-  --qualification .work/commerce-five/serverless/qualification.json
+  --qualification .work/commerce-five/serverless/qualification.json \
+  --cache-evidence .work/evidence/five-001/serverless/cache-control.json
 ```
 
-The runner uses argv arrays, saves native command logs, waits for runtime probes, and writes a result to `results/raw/`. It refuses an unqualified provider plan or dirty source tree. Run tool installation and baseline setup separately; the measured commands must not contain them.
+The cache command records this attempt's source commit and current owned cache paths. For packaging, use the clean-build and cached-source-edit commands in the selected branch's runbook instead. The runner requires the matching immutable cache record, saves native command logs, waits for runtime probes, and writes a result to `results/raw/`. It refuses an unqualified provider plan or dirty source tree. Run tool installation and baseline setup separately; the measured commands must not contain them.
 
 For Git push, configure the platform to follow the trial branch and commit first. Add `pipeline.branch`, `pipeline.sourceCommit` and `pipeline.configurationEvidence` to the qualification file. Also bind `pipeline.completion.argv` to a native observer that returns `{sourceCommit, status, runId}` for the pushed SHA. `status` is `pending`, `succeeded`, `failed` or `cancelled`. For GitHub Actions use `node scripts/github-run.mjs OWNER/REPO PUSHED_SHA`; hosted platforms need the corresponding qualified native deployment observer. The runner checks successful terminal completion after the readiness timer stops, so a failed or still-running workflow cannot qualify a result. A repeat push also needs the previous verified `previousReadyAt`. Then use the push runner:
 
