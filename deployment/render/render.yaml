@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: bench-commerce-node-api
+    runtime: node
+    plan: starter
+    rootDir: fixtures/containers/node
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /version
+    autoDeployTrigger: commit

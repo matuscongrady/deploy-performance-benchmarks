@@ -9,7 +9,6 @@
   "scripts": {
     "check": "node scripts/check.mjs",
     "bench": "node scripts/bench.mjs",
-    "branches": "node scripts/branches.mjs",
     "results": "node scripts/results.mjs"
   }
 }
