@@ -1,13 +1,4 @@
 {
-  "1": {
-    "description": "Generate sales reports as PDF, Excel and Word documents",
-    "entrypoints": {
-      "report": "handlers/report.mjs:handler"
-    },
-    "changedFunctions": [
-      "report"
-    ]
-  },
   "5": {
     "description": "A small storefront backend",
     "entrypoints": {
@@ -23,63 +14,6 @@
       "cart-pricing",
       "create-order",
       "notification"
-    ]
-  },
-  "25": {
-    "description": "Commerce, customer and fulfillment functions",
-    "entrypoints": {
-      "report": "handlers/report.mjs:handler",
-      "product-lookup": "handlers/product-lookup.mjs:handler",
-      "cart-pricing": "handlers/cart-pricing.mjs:handler",
-      "create-order": "handlers/create-order.mjs:handler",
-      "notification": "handlers/notification.mjs:handler",
-      "product-search": "handlers/product-search.mjs:handler",
-      "category-list": "handlers/category-list.mjs:handler",
-      "inventory-check": "handlers/inventory-check.mjs:handler",
-      "reserve-stock": "handlers/reserve-stock.mjs:handler",
-      "release-stock": "handlers/release-stock.mjs:handler",
-      "shipping-quote": "handlers/shipping-quote.mjs:handler",
-      "tax-quote": "handlers/tax-quote.mjs:handler",
-      "apply-discount": "handlers/apply-discount.mjs:handler",
-      "payment-intent": "handlers/payment-intent.mjs:handler",
-      "payment-webhook": "handlers/payment-webhook.mjs:handler",
-      "order-status": "handlers/order-status.mjs:handler",
-      "cancel-order": "handlers/cancel-order.mjs:handler",
-      "return-request": "handlers/return-request.mjs:handler",
-      "customer-profile": "handlers/customer-profile.mjs:handler",
-      "customer-token": "handlers/customer-token.mjs:handler",
-      "invoice": "handlers/invoice.mjs:handler",
-      "catalog-import": "handlers/catalog-import.mjs:handler",
-      "catalog-feed": "handlers/catalog-feed.mjs:handler",
-      "daily-summary": "handlers/daily-summary.mjs:handler",
-      "shipment-update": "handlers/shipment-update.mjs:handler"
-    },
-    "changedFunctions": [
-      "report",
-      "product-lookup",
-      "cart-pricing",
-      "create-order",
-      "notification",
-      "product-search",
-      "category-list",
-      "inventory-check",
-      "reserve-stock",
-      "release-stock",
-      "shipping-quote",
-      "tax-quote",
-      "apply-discount",
-      "payment-intent",
-      "payment-webhook",
-      "order-status",
-      "cancel-order",
-      "return-request",
-      "customer-profile",
-      "customer-token",
-      "invoice",
-      "catalog-import",
-      "catalog-feed",
-      "daily-summary",
-      "shipment-update"
     ]
   }
 }

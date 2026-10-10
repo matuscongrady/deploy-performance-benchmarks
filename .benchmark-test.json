@@ -1,0 +1,4 @@
+{
+  "scenario": "deploy-lambda-5-git-cold",
+  "baseCommit": "93362259b75ba500d8562d36f29454872f1df9f0"
+}
