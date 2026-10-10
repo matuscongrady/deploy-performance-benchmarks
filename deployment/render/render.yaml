@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: bench-commerce-python-api
+    runtime: python
+    plan: starter
+    rootDir: fixtures/containers/python
+    buildCommand: pip install --require-hashes -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /version
+    autoDeployTrigger: commit

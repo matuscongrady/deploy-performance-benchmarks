@@ -1,0 +1,10 @@
+import {App,Stack,CfnOutput,Duration} from 'aws-cdk-lib';
+import {Vpc,SubnetType} from 'aws-cdk-lib/aws-ec2';
+import {Cluster,ContainerImage} from 'aws-cdk-lib/aws-ecs';
+import {ApplicationLoadBalancedFargateService} from 'aws-cdk-lib/aws-ecs-patterns';
+import {resolve} from 'node:path';
+const app=new App();const stack=new Stack(app,"bench-commerce-python",{env:{region:"eu-west-1"}});
+const vpc=new Vpc(stack,'Vpc',{maxAzs:2,natGateways:0,subnetConfiguration:[{name:'public',subnetType:SubnetType.PUBLIC}]});const cluster=new Cluster(stack,'Cluster',{vpc});new CfnOutput(stack,'ClusterArn',{value:cluster.clusterArn});
+const api=new ApplicationLoadBalancedFargateService(stack,"api",{cluster,cpu:256,memoryLimitMiB:512,desiredCount:1,assignPublicIp:true,taskSubnets:{subnetType:SubnetType.PUBLIC},publicLoadBalancer:true,minHealthyPercent:100,maxHealthyPercent:200,taskImageOptions:{image:ContainerImage.fromAsset(resolve("../../fixtures/containers/python"),{file:'Dockerfile.cdk'}),containerPort:3000,environment:{PORT:'3000'}}});
+api.targetGroup.configureHealthCheck({path:'/version'});new CfnOutput(stack,"apiUrl",{value:'http://'+api.loadBalancer.loadBalancerDnsName});new CfnOutput(stack,"apiService",{value:api.service.serviceArn});
+app.synth();
