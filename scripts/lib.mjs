@@ -73,7 +73,7 @@ export async function verifyRetainedCache(proof,project,{base=root,live=true}={}
 }
 export function validateNativeCacheObservation(observation,expected,completion,mode) {
   for(const key of ['sourceCommit','scenario','provider','appId'])if(observation[key]!==expected[key])throw Error('Native cache observer differs from '+key);
-  if(observation.status!=='passed'||!observation.runner||!observation.cache||!completion?.verified||completion.status!=='succeeded'||completion.sourceCommit!==expected.sourceCommit)throw Error('Native cache/runner evidence requires a successful completed attempt');
+  if(observation.status!=='passed'||!observation.runner||typeof observation.runner!=='object'||Array.isArray(observation.runner)||!observation.cache||typeof observation.cache!=='object'||Array.isArray(observation.cache)||!completion?.verified||completion.status!=='succeeded'||completion.sourceCommit!==expected.sourceCommit)throw Error('Native cache/runner evidence requires a successful completed attempt');
   if(mode==='github-actions') {
     if(String(observation.runner.githubRunId)!==String(completion.runId)||String(observation.runner.githubRunAttempt)!==String(completion.runAttempt))throw Error('CI cache evidence belongs to a different run/attempt');
     if(typeof observation.cache.requested!=='boolean'||typeof observation.cache.restored!=='boolean'||typeof observation.cache.exactKeyHit!=='boolean')throw Error('CI cache restore observation is missing');
