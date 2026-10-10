@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import os from 'node:os';
-import {mkdir,readFile} from 'node:fs/promises';
+import {mkdir,readFile,copyFile} from 'node:fs/promises';
+import {constants} from 'node:fs';
 import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord,readCacheEvidence} from './lib.mjs';
 import {needsSstRollout,admitSstRollout} from './sst-rollout.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
@@ -89,7 +90,11 @@ try {
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
     if(rolloutAdmission){const file=path.join(evidenceDir,'rollout-admission.json');await save(file,rolloutAdmission);evidence.push({file:path.relative(root,file),sha256:await sha256(file)});}
-    for(const artifact of artifacts.files||[])if(artifact.role==='manifest'||artifact.role==='build-identity')evidence.push({file:path.relative(root,path.resolve(plan.cwd,artifact.path)),sha256:artifact.sha256});
+    for(const artifact of artifacts.files||[])if(artifact.role==='manifest'||artifact.role==='build-identity'){
+      const file=path.join(evidenceDir,'artifacts',artifact.path);await mkdir(path.dirname(file),{recursive:true});
+      await copyFile(path.resolve(plan.cwd,artifact.path),file,constants.COPYFILE_EXCL);
+      evidence.push({file:path.relative(root,file),sha256:artifact.sha256});
+    }
     for(const log of logs) for(const file of [log.stdoutFile,log.stderrFile]) evidence.push({file:path.relative(root,file),sha256:await sha256(file)});
     const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt:scenario.kind==='package'?commandFinishedAt:finishedAt,durationMs:scenario.kind==='package'?commandDurationMs:finish-start,commandDurationMs,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
     if(rolloutAdmission)record.rolloutAdmission=rolloutAdmission;
