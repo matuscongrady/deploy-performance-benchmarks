@@ -16,7 +16,7 @@ Tool packages and their transitive dependencies are pinned under `providers/tool
 | CDK | CLI 2.1145.0, library 2.273.0 | NodejsFunction; `deploy --hotswap`; native ECS image builder |
 | Ravion | CLI 1.14.3 | Native Railpack build/deploy pipeline, current standard module defaults |
 | Render | CLI 2.28.0 | Native Node/Python runtime, Git automation or commit-specific manual deployment |
-| Heroku | Not selected yet | Choose account, generation and buildpack before qualification |
+| Heroku | CLI 11.11.0; official builds plugin 2.0.4 | Cedar Basic, official Node/Python buildpacks; native source/cache qualification required |
 
 Record the actual executable version and hash before a run. Hosted builders and runtime patch releases can change even when a local CLI is pinned; save their reported versions and build capacity. Generated Serverless configurations require the exact `frameworkVersion: 4.43.0`. The Serverless npm package starts a downloaded CLI: verify the downloaded executable reports the pinned version instead of assuming that the npm lockfile alone proves it.
 
@@ -90,7 +90,30 @@ Do not use pipeline queue time as packaging time. Extract the actual build step 
 
 ## Heroku
 
-Account setup and generation are a separate decision. Fir's default Cloud Native Buildpacks produce OCI images; classic Cedar buildpacks produce slugs. The repository therefore leaves Heroku blocked rather than inventing an account or comparing a slug's bytes with an OCI image's bytes. After choosing the generation, pin the buildpack/release evidence and add a native Git/manual build recipe and the same live probes.
+Use Cedar Common Runtime Basic with the official Node/Python buildpacks for the low-cost comparison. Basic is always on and is billed for its actual lifetime. Keep the actual builder version, stack, runtime version and compressed slug identity/size. Slug sizes have a separate format from OCI image bytes. Fir requires a Private Space; switching to it is a separately priced change, not an automatic prerequisite for including Heroku.
+
+The account needs billing verification and CLI authentication. The native measurement recipe remains blocked until source-root, cache, exact-build attribution and runtime probes have been qualified. Heroku is included in the planned matrix; account access alone does not qualify its measurements.
+
+Install the pinned tools outside timing and sign in interactively:
+
+```sh
+npm install --prefix ~/.local/share/benchmark-tools/heroku-11.11.0 heroku@11.11.0
+ln -s ~/.local/share/benchmark-tools/heroku-11.11.0/node_modules/.bin/heroku ~/.local/bin/heroku
+heroku plugins:install @heroku-cli/heroku-builds@2.0.4
+heroku login
+```
+
+Preserve an existing executable rather than replacing it with this example link. Do not record the CLI's credentials or source archive download URLs in public evidence.
+
+Heroku's native app source belongs at the build root. Stage the selected fixture into an app-only source branch or use a plain Git subtree projection; do not replace the official buildpack with a third-party monorepo buildpack. Keep the original scenario commit, derived commit and verified application-file tree mapping as immutable evidence. Document native additions such as `Procfile` and runtime selectors. For Python, qualify the pinned patch first: Heroku supports only the latest patch for each major version. If its supported `3.11` selector is needed, disclose that native configuration and the exact resolved runtime.
+
+The CLI journey uses the native direct Heroku Git deployment. The GitHub journey pushes to a connected app-only GitHub branch and uses Heroku's automatic deployment. They have different push destinations and pipeline boundaries; keep those visible in the results. Five services need five independently bound apps and source inputs. The three changed inputs deploy concurrently; preserve the two unchanged source/artifact/release identities. A projection must not manufacture new commits for unchanged application trees, since that could trigger unnecessary native builds. Record and verify every native commit against the scenario's selected source before translating it into the shared result identity.
+
+For a fresh build, use the official plugin's `heroku builds:cache:purge --app OWNED_APP` outside the Git-push timer and save its native response, then verify cache observations during the measured build. Repeat builds retain normal native caches. Use native build-phase evidence for packaging; the total Git push/build/release duration is a deployment measurement. Inspect the compressed slug through the native Build/Slug API and downloaded proof outside packaging time; do not substitute an extracted directory's size.
+
+After the paired batch, destroy only the recorded owned apps using `heroku apps:destroy --app OWNED_APP --confirm OWNED_APP`. Verify those exact app IDs are absent and that no campaign-owned dynos/add-ons remain. No Eco subscription, Private Space, database or paid add-on is required by these fixtures.
+
+Sources: [pricing](https://www.heroku.com/pricing/), [billing](https://devcenter.heroku.com/articles/usage-and-billing), [Git deployment](https://devcenter.heroku.com/articles/git), [GitHub deployment](https://devcenter.heroku.com/articles/github-integration), [official cache purge](https://devcenter.heroku.com/articles/slug-compiler), [Python runtime policy](https://devcenter.heroku.com/articles/python-support), [slug API](https://devcenter.heroku.com/articles/platform-api-reference#slug).
 
 ## Before a campaign
 

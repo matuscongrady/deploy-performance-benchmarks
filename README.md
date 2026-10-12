@@ -6,6 +6,8 @@ The applications are small commerce backends. They do real work: price a cart, v
 
 ## Pick a test
 
+For the owner review, open [the visual plan](docs/review.html) in a browser. It explains the applications, clocks, proposed charts, Heroku setup and spending/cleanup rules. The preview numbers are illustrative.
+
 Each test has its own `test/…` branch. Open its `TEST.md` for the application, exact source change, timer and commands. [The test list](docs/tests.md) links to every branch.
 
 The source lives in folders on `main`. Each test branch contains the selected application, its dependencies, deployment configuration and the instructions needed to run it. Unrelated applications and tests stay on `main`. Run measurements on separate `trial/…` branches so the published test definitions stay intact.

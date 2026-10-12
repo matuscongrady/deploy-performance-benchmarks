@@ -97,3 +97,11 @@ node scripts/results.mjs
 ```
 
 The report prints median/range and failure counts. It does not manufacture missing results. Review and sanitize raw evidence before publishing it on a results branch or release; retain enough IDs and logs to match timings to real deployments without exposing credentials.
+
+## Spending and interrupted cleanup
+
+Before provisioning, record the campaign's total spending limit and reserve in ignored state. Price the actual generated resources in their actual region, including hosted-plan/build-minute charges, temporary capacity, native runner storage and anything retained while waiting. Do not infer a full-campaign bill from only web-service prices.
+
+Execute predeclared comparison rows across all supported providers. Before each row, check its estimated remaining lifetime and costs plus the reserved cleanup/retry amount against the remaining budget. If it does not fit, stop and clean up the whole row; report it as unrun rather than silently excluding a competitor. Keep every failed attempt and retry. Do not combine qualification diagnostics with a publishable series after changing code, settings or timing rules.
+
+Persist exact owned resource IDs as they are created, with account/region, owner and recovery procedure. Cleanup runs after success, failure and interruption, before moving to the next batch. Verify deletion from the native platform and AWS by those exact IDs. Include owned load balancers, NAT gateways/public IPs, tasks, runners and disks, images/buckets/logs and any provider apps/projects; stopping a process or hibernating a runner does not establish deletion. Preserve unrelated resources and existing subscriptions. At campaign end, disable benchmark CI and remove the benchmark's temporary AWS connection through its recorded native teardown procedure.

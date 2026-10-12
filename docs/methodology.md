@@ -76,6 +76,8 @@ Use the fastest supported cloud update path for the tested source edit. The cand
 
 For the repeat series, complete the previous update and verify readiness. Wait 15 minutes from that observation, change the source revision, then push. Save restored/missed cache keys and the builder’s reuse logs. Label the website chart “Another push after 15 minutes.” Mention “warm” only where reuse was demonstrated.
 
+For the candidate's fastest Git path, qualify its native Console CI, including actual fresh-runner creation and the observed runner/cache state after 15 minutes. The supplied candidate GitHub Actions workflow is a separately labelled fallback. Do not present an ephemeral Actions runner with restored caches as a native Console runner, or combine those two pipeline engines into one result series. Framework competitors can use their native CLI through GitHub Actions; hosted platforms use their native Git automation.
+
 Managed platforms may use different machines and caches from GitHub Actions. Publish those differences. If clearing a managed cache starts a deployment itself, that deployment cannot serve as a cache reset immediately followed by a supposedly untouched timed Git push.
 
 ## Repetitions and website results
