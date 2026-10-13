@@ -26,9 +26,10 @@ try {
     const p=structuredClone(proof);mutate(p);await writeFile(path.join(temp,'native.json'),JSON.stringify(p));const digest=await sha256(path.join(temp,'native.json'));const r=change(r=>{r.artifacts.nativeBuild.evidenceSHA=digest;r.evidence.find(e=>e.file==='native.json').sha256=digest;});await assert.rejects(verifyImportedNativePackage(r,{base:temp}),/completion|checks/);
   }
   await assert.rejects(verifyImportedNativePackage(record,{base:temp}),/checksum/);
-  const summary=summarizeResults(Array.from({length:10},()=>structuredClone(record)))[0];
+  const attempts=source=>Array.from({length:10},(_,i)=>{const r=structuredClone(source);r.runId='native-'+String(i+1).padStart(3,'0');r.cacheEvidence.runId=r.runId;if(r.artifacts.nativeBuild)r.artifacts.nativeBuild.runId=r.runId;return r;});
+  const summary=summarizeResults(attempts(record))[0];
   assert.equal(summary.publishable,true);assert.equal(summary.sizePublishable,false);assert.equal(summary.sizeSamples,0);for(const key of ['medianBytes','minBytes','maxBytes'])assert.equal(summary[key],null);
   const measured=change(r=>{r.provider='heroku';r.cacheEvidence.provider='heroku';r.artifacts={format:'heroku-slug',complete:true,bytes:1234};});
-  const sized=summarizeResults(Array.from({length:10},()=>structuredClone(measured)))[0];assert.equal(sized.sizePublishable,true);assert.equal(sized.medianBytes,1234);
+  const sized=summarizeResults(attempts(measured))[0];assert.equal(sized.sizePublishable,true);assert.equal(sized.medianBytes,1234);
   console.log('Managed native packaging timing/proof and unavailable-size checks passed.');
 } finally {await rm(temp,{recursive:true,force:true});}

@@ -68,6 +68,28 @@ CDK's `--hotswap` path is included because this comparison requests fast updates
 
 SST uses cloud `deploy`, never Live mode. Its production function builder keeps its own defaults, installs PDFKit with its font assets, and bundles ExcelJS/docx. Its packaging bridge calls the unmodified Node runtime from the checksum-pinned 4.17.2 release, then executes that release's exact Function archive code as soon as each build completes with its pinned archiver and glob dependencies. This includes runtime dependency installation, encrypted resource metadata and final ZIP creation; its code ZIPs exclude source maps that native production packaging uploads separately. The bridge retains those native source-map files as auxiliary uploads, so the Upload size total includes their raw bytes alongside compressed ZIP/layer bytes. SST has no official standalone packaging command, so this bridge must pass native deployment parity before its timing can appear in a comparison.
 
+### Measure the native build stage
+
+Lambda package runs can record two clocks for the same command. The operation clock covers the complete native command, including startup and artifact observation. The build clock starts at the actual native builder and stops when all code ZIPs, shared layers and separately uploaded source maps are ready. Both use Linux monotonic time; the build duration is never estimated by subtracting startup from an older run.
+
+The boundaries are specific to the pinned recipes:
+
+| Provider | Build starts | Artifacts are ready |
+| --- | --- | --- |
+| Serverless Framework | Immediately before its built-in esbuild `_build` method | The last native `_writeArchive` promise completes after its output stream closes |
+| CDK | In the native app, immediately before the first `NodejsFunction` | The last native `FileAssetHandler.packageFile` call completes |
+| SST | In the native Go caller, immediately before scheduling `Collection.Build` | The last native Function archive closes; its runtime has already written the separate maps |
+
+Serverless's observer follows its verified 4.43.0 lifecycle: build, external dependency preparation, then individual archives. A generic package hook would run after the built-in builder and miss part of that work. The observer therefore wraps those pinned native methods without changing their arguments, results or archive recipe. It records their method hashes and rejects an unfamiliar version or lifecycle. Its plugin, marker JSON and input-manifest files are excluded by the native packaging rules.
+
+CDK and SST keep their existing native packaging bridges. CDK's child records `process.hrtime.bigint()` and SST's child records `CLOCK_MONOTONIC`; the parent uses the same Linux clock when each native archive completes. Child startup before the builder remains in the operation clock. ZIP copies, hashing, proof serialization and final observer manifests remain in that clock too. They occur after the observed archive-ready boundary. Every captured CDK ZIP is also checked against the publisher's original output path.
+
+The runner supplies a unique proof path and a checksum-bound manifest through `BENCH_BUILD_TIMING_FILE` and `BENCH_BUILD_INPUT_MANIFEST`. The producer verifies the current source, lockfiles, generated configuration, instrumentation and run identity before recording a marker. A proof must contain exactly one start and one readiness marker, the complete current upload set, and markers inside the native command's operation envelope. Missing markers, reused output, changed inputs or a different provider fail the run. No encryption keys or credential values are written to these proofs.
+
+`providers/build-timing.mjs` exports each recipe's configuration and instrumentation file lists. Use those lists when preparing `buildTiming` qualification settings. Run `scripts/qualify-build-timing.mjs` with the native artifact qualification and explicit `--execute` before the new campaign. This command checks the real stage markers, complete artifacts and business probes without creating a measured sample. Recompile SST's bridge through the normal untimed installation step whenever its caller changes. A local public-key SST probe proves runtime behavior; deployed-byte parity still requires the selected app's native configuration and key.
+
+The observer mechanics have an offline regression at `providers/check-build-timing.mjs`. Qualification must also package the real pinned tools and compare observer-enabled artifacts with their native output. Those checks supplement the uploaded-artifact and runtime qualification; they do not turn an unqualified bridge into a website result.
+
 ### Repeat the local complete-ZIP checks
 
 Prepare the selected Lambda scenario with the repository harness. Run the generated plan's `commands.install` once, outside timing, then its `commands.package` in the generated project directory. CDK needs Node and npm. SST's untimed bridge preparation also needs Docker; it downloads the checksum-pinned source archive and compiles it with a digest-pinned Go image. It does not mount AWS credentials or run a cloud operation.

@@ -4,6 +4,12 @@ Cache state is part of a test, not a guess based on elapsed time. Keep the reset
 
 ## Local Lambda packaging
 
+Both artifact series use a prewarmed AWS identity and one verified short-lived session shared by all four local builders. A clean build clears qualified application build outputs; it does not represent a first login or cold identity lookup. Keep identity-cache files and global dependency download caches intact.
+
+After native cloud qualification, resolve the disposable account's session once with `aws configure export-credentials --profile PROFILE --format process`. Capture that response only in the runner's memory. Never print it, put credentials in argv or write them to a file. Verify the exported environment with `aws sts get-caller-identity` without a profile override, then supply the same environment to every builder. Remove `AWS_PROFILE` and `AWS_DEFAULT_PROFILE` from those local packaging commands so they do not assume a fresh role independently. Native cloud qualification and cleanup can use their separately verified profiles.
+
+Run one complete candidate package outside the comparative series to warm identity for that exact session. Every measured candidate trace must then show `aws:identity` with `source: "cache"` and the expected account, with no STS request. Keep only `identitySession: "shared-prewarmed"`, the verified account and expiration as result metadata. Check expiration before every attempt and stop the series if it is expiring; do not silently obtain a new session halfway through. Record this policy for both clean-output builds and cached source edits. Ordinary CLI deployment updates retain and disclose their own full-command credential/cache conditions.
+
 Install dependencies once. Prepare the project with a stable application ID. For a clean-build attempt, run the matching reset before the native package command:
 
 ```sh

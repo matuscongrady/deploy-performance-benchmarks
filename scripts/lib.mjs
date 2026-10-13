@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import {validateBuildSummary} from './build-timing.mjs';
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export async function json(file) { return JSON.parse(await readFile(file, 'utf8')); }
 export async function save(file, value) { await mkdir(path.dirname(file), {recursive:true}); await writeFile(file, JSON.stringify(value,null,2)+'\n'); }
@@ -25,7 +26,10 @@ export async function command(argv,{cwd=root,env={},stdoutFile,stderrFile,timeou
     const timer=setTimeout(()=>{timedOut=true;stop();},timeoutMs);
     child.stdout.on('data',b=>out.push(b)); child.stderr.on('data',b=>err.push(b));
     child.on('error',e=>{spawnError=e.message;err.push(Buffer.from(e.message));});
-    child.on('close',async(code,childSignal)=>{signal?.removeEventListener('abort',aborted);clearTimeout(timer);if(killTimer)clearTimeout(killTimer); const stdout=Buffer.concat(out).toString(),stderr=Buffer.concat(err).toString(); try {if(stdoutFile) await writeFile(stdoutFile,stdout); if(stderrFile) await writeFile(stderrFile,stderr); resolve({argv,cwd,exitCode:spawnError?127:code,signal:childSignal,timedOut,spawnError,startedAt:wallStarted,finishedAt:new Date().toISOString(),durationMs:performance.now()-started,stdout,stderr});} catch(e){reject(e);} });
+    child.on('close',async(code,childSignal)=>{signal?.removeEventListener('abort',aborted);clearTimeout(timer);if(killTimer)clearTimeout(killTimer);
+      const secrets=['AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','AWS_SECURITY_TOKEN','SERVERLESS_ACCESS_KEY','STACKTAPE_API_KEY','SST_PACKAGE_ENCRYPTION_KEY','HEROKU_API_KEY'].map(k=>env[k]??process.env[k]).filter(v=>typeof v==='string'&&v.length);
+      const redact=text=>secrets.reduce((safe,value)=>safe.split(value).join('<redacted>'),text);
+      const stdout=redact(Buffer.concat(out).toString()),stderr=redact(Buffer.concat(err).toString());try {if(stdoutFile) await writeFile(stdoutFile,stdout); if(stderrFile) await writeFile(stderrFile,stderr); resolve({argv,cwd,pid:child.pid,exitCode:spawnError?127:code,signal:childSignal,timedOut,spawnError,startedAt:wallStarted,finishedAt:new Date().toISOString(),durationMs:performance.now()-started,stdout,stderr});} catch(e){reject(e);} });
   });
 }
 export function safeId(value,label='identifier') { if(!/^[a-z0-9][a-z0-9-]{2,60}$/.test(value)) throw Error('Invalid '+label+': use 3–61 lowercase letters, digits and hyphens'); return value; }
@@ -162,6 +166,7 @@ export function validatePredecessorSummary(record) {
 
 
 export function validateRecord(r) {
+  validateBuildSummary(r);
   if(r.schemaVersion!==1||!['package','deploy'].includes(r.kind)||!['passed','failed','unqualified'].includes(r.status)) throw Error('Invalid result schema/kind/status');
   for(const key of ['scenario','provider','runId','sourceCommit','startedAt','finishedAt']) if(typeof r[key]!=='string'||!r[key]) throw Error('Missing '+key);
   if(!Number.isFinite(Date.parse(r.startedAt))||!Number.isFinite(Date.parse(r.finishedAt))||Date.parse(r.finishedAt)<Date.parse(r.startedAt)) throw Error('Invalid timer timestamps');

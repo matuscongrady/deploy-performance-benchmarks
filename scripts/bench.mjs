@@ -8,6 +8,7 @@ import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,pa
 import {verifyImportedPredecessor} from './git-predecessor.mjs';
 import {measureDeployment} from './deployment-timer.mjs';
 import {needsSstRollout,admitSstRollout,captureSstRolloutBaseline} from './sst-rollout.mjs';
+import {captureBuildInputs,collectBuildTiming,verifyImportedBuildTiming,buildClock} from './build-timing.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
 const [operation,id,provider]=positional;
 try {
@@ -38,6 +39,8 @@ try {
     const {checkQualification}=await import('./qualification.mjs');
     await checkQualification(qualification,scenario,provider,{sourceBound:true});
     for(const item of qualification.qualificationEvidence) if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Qualification evidence checksum mismatch');
+    if(qualification.buildTiming?.identitySession&&Date.parse(qualification.buildTiming.identitySession.expiration)<=Date.now()+60000)throw Error('Shared packaging identity expires before this attempt; stop the campaign');
+    for(const item of qualification.buildTiming?.qualificationEvidence||[])if(await sha256(path.resolve(root,item.file))!==item.sha256)throw Error('Build boundary qualification checksum mismatch');
     if(provider==='candidate'&&await sha256(process.env.CANDIDATE_CLI)!==qualification.toolVersion.sha256) throw Error('Candidate executable hash differs from qualification');
     if(scenario.kind==='deploy'&&['candidate','serverless','sst','cdk'].includes(provider)){
       if(!/^\d{12}$/.test(qualification.environment.accountId||''))throw Error('Deployment qualification needs the expected AWS account ID');
@@ -62,15 +65,26 @@ try {
     if(cacheEvidence.nativeClean&&JSON.stringify(cacheEvidence.nativeClean)!==JSON.stringify(qualification.cacheControl?.nativeClean))throw Error('Native clean control differs from qualification');
     if(cacheEvidence.series==='clean'&&cacheEvidence.nativeClean?.verified){const {env={}}=cacheEvidence.nativeClean;for(const [key,value]of Object.entries(env))if((plan.env?.[key]??process.env[key])!==value)throw Error('Qualified native no-cache environment is missing: '+key);if(!Object.keys(env).length)throw Error('Native clean control requires a qualified no-cache environment');}
     const evidenceDir=path.join(root,'.work','evidence',runId,provider);await mkdir(evidenceDir,{recursive:true});
+    const buildIdentity={provider,runId,sourceCommit:git.stdout.trim(),appId,fixture:scenario.fixture,toolVersion:qualification.toolVersion};
+    let buildInput,buildTiming,operationTiming;
+    const buildNativeFile=path.join(evidenceDir,provider==='candidate'?'native-build-trace.json':'native-build-markers.json');
+    let buildEnv={};
+    if(qualification.buildTiming){
+      if(process.platform!=='linux')throw Error('Matched native build timing requires the qualified Linux monotonic clock');
+      await refuseExistingResult(buildNativeFile);
+      buildInput=await captureBuildInputs({qualification:qualification.buildTiming,identity:buildIdentity,project:plan.cwd,repository:root,file:path.join(evidenceDir,'build-inputs.json')});
+      buildEnv={BENCH_PROVIDER:provider,BENCH_RUN_ID:runId,BENCH_SOURCE_COMMIT:buildIdentity.sourceCommit,BENCH_APP_ID:appId,BENCH_FIXTURE:scenario.fixture,BENCH_BUILD_TIMING_FILE:buildNativeFile,BENCH_BUILD_INPUT_MANIFEST:buildInput.file,BENCH_BUILD_INPUT_MANIFEST_SHA256:buildInput.sha256,BENCH_BUILD_CONFIG_SHA256:buildInput.manifest.configurationSha256};
+      if(provider==='candidate')Object.assign(buildEnv,{STP_TIMINGS_FILE:buildNativeFile,STP_TIMINGS_BINDINGS_SHA256:buildInput.sha256,STP_TIMINGS_CONFIG_SHA256:buildInput.manifest.configurationSha256});
+    }
     let startedAt,start,commandFinishedAt,commandDurationMs,finishedAt,durationMs;
     const logs=[]; let status='passed',failure;
-    let readiness={verified:false},artifacts={complete:false},nativeCompletion;
+    let readiness={verified:false},artifacts={complete:false,...scenario.kind==='package'&&{format:qualification.artifacts.format}},nativeCompletion;
     async function runNative() {
       const nativeStart=performance.now();let passed=true,nativeFailure;
       for(let i=0;i<commands.length;i++) {
         const stdoutFile=path.join(evidenceDir,`command-${i}.stdout.log`),stderrFile=path.join(evidenceDir,`command-${i}.stderr.log`);
-        const result=await command(commands[i],{cwd:plan.cwd,env:{...plan.env,BENCH_SOURCE_COMMIT:git.stdout.trim(),BENCH_RUN_ID:runId},stdoutFile,stderrFile});
-        logs.push({argv:result.argv,exitCode:result.exitCode,durationMs:result.durationMs,stdoutFile,stderrFile});
+        const result=await command(commands[i],{cwd:plan.cwd,env:{...plan.env,BENCH_SOURCE_COMMIT:git.stdout.trim(),BENCH_RUN_ID:runId,...buildEnv},stdoutFile,stderrFile});
+        logs.push({argv:result.argv,pid:result.pid,exitCode:result.exitCode,durationMs:result.durationMs,stdoutFile,stderrFile});
         if(result.exitCode!==0) {passed=false;nativeFailure=`Native command ${i+1} failed`;break;}
       }
       commandFinishedAt=new Date().toISOString();commandDurationMs=performance.now()-nativeStart;
@@ -85,7 +99,9 @@ try {
       if(status==='passed')try{nativeCompletion.postCompletionReadiness=await probe(qualification.probes,{timeoutMs:qualification.timeoutMs||900000});}catch(e){status='failed';failure=e.message;nativeCompletion.verified=false;}
     } else {
       startedAt=new Date().toISOString();start=performance.now();
+      if(buildInput)operationTiming={clock:buildClock,startNs:process.hrtime.bigint().toString()};
       const completed=await runNative();if(!completed.passed){status='failed';failure=completed.failure;}
+      if(buildInput)operationTiming.endNs=process.hrtime.bigint().toString();
       durationMs=performance.now()-start;finishedAt=commandFinishedAt;
     }
     if(status==='passed'&&scenario.kind==='package') {
@@ -102,10 +118,15 @@ try {
         }
       } catch(e){status='unqualified';failure=e.message;}
     }
+    if(buildInput){
+      buildTiming={required:true,verified:false,campaignId:qualification.buildTiming.campaignId,scope:qualification.buildTiming.scope,clock:buildClock,producer:qualification.buildTiming.producer,configurationSha256:buildInput.manifest.configurationSha256,instrumentationSha256:buildInput.manifest.instrumentationSha256,...qualification.buildTiming.nativeMethodSha256&&{nativeMethodSha256:qualification.buildTiming.nativeMethodSha256},...qualification.buildTiming.identitySession&&{identitySession:qualification.buildTiming.identitySession},inputEvidence:{file:path.relative(root,buildInput.file),sha256:buildInput.sha256}};
+      if(status==='passed')try{buildTiming=await collectBuildTiming({spec:qualification.buildTiming,identity:buildIdentity,input:buildInput,nativeFile:buildNativeFile,operation:operationTiming,commands:logs.filter(l=>l.phase!=='verification-outside-timer'),artifacts,base:root});}catch(e){status='unqualified';failure=e.message;buildTiming.failure=e.message;}
+    }
     let reuse,rolloutAdmission;
     if(status==='passed'&&needsSstRollout(scenario,provider)){try{rolloutAdmission=await admitSstRollout(qualification,{baseline:rolloutBaseline});}catch(e){status='failed';failure=e.message;rolloutAdmission=e.rolloutAdmission;}}
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
+    if(buildInput){evidence.push({file:path.relative(root,buildInput.file),sha256:buildInput.sha256});try{const nativeEvidence={file:path.relative(root,buildNativeFile),sha256:await sha256(buildNativeFile)};evidence.push(nativeEvidence);buildTiming.nativeEvidence=nativeEvidence;}catch(e){if(e.code!=='ENOENT')throw e;}}
     if(rolloutAdmission){const file=path.join(evidenceDir,'rollout-admission.json');await save(file,rolloutAdmission);evidence.push({file:path.relative(root,file),sha256:await sha256(file)});}
     for(const artifact of [...(artifacts.files||[]),...(artifacts.proofs||[])])if(['oci-compressed','lambda-zip'].includes(artifacts.format)){
       const file=path.join(evidenceDir,'artifacts',artifact.path);await mkdir(path.dirname(file),{recursive:true});
@@ -115,6 +136,7 @@ try {
     }
     for(const log of logs) for(const file of [log.stdoutFile,log.stderrFile]) evidence.push({file:path.relative(root,file),sha256:await sha256(file)});
     const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt,durationMs,commandDurationMs,nativeCompletion,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
+    if(buildInput)Object.assign(record,{buildTiming,operationTiming});
     if(rolloutAdmission)record.rolloutAdmission=rolloutAdmission;
     validateRecord(record); await saveResult(resultFile,record);
     console.log(JSON.stringify(record,null,2)); if(status!=='passed') process.exitCode=1;
@@ -123,6 +145,11 @@ try {
     const scenario=await scenarioById(record.scenario);if(!scenario.providers.includes(record.provider))throw Error('Provider is not supported by this test');if(record.kind!==scenario.kind)throw Error('Record kind differs from selected test');safeId(record.provider);safeId(record.runId);
     if(!record.qualificationFile)throw Error('Imported results require a reviewed qualificationFile');
     const {checkQualification}=await import('./qualification.mjs');const qualification=await json(path.resolve(root,record.qualificationFile));await checkQualification(qualification,scenario,record.provider);
+    if(record.status==='passed'&&qualification.buildTiming?.required&&!record.buildTiming?.verified)throw Error('Imported matched-build qualification requires original native build timing');
+    if(record.buildTiming&&(record.buildTiming.producer!==qualification.buildTiming?.producer||record.buildTiming.campaignId!==qualification.buildTiming?.campaignId))throw Error('Imported build producer/campaign differs from qualification');
+    if(record.buildTiming&&(record.buildTiming.configurationSha256!==qualification.buildTiming.configurationSha256||record.buildTiming.instrumentationSha256!==qualification.buildTiming.instrumentationSha256))throw Error('Imported build configuration/instrumentation differs from qualification');
+    if(record.buildTiming&&!isDeepStrictEqual(record.buildTiming.identitySession,qualification.buildTiming.identitySession))throw Error('Imported packaging identity differs from qualification');
+    if(record.buildTiming&&!isDeepStrictEqual(record.buildTiming.nativeMethodSha256,qualification.buildTiming.nativeMethodSha256))throw Error('Imported native lifecycle differs from qualification');
     if(record.stage!==qualification.stage||record.appId!==qualification.appId||record.environment.region!==qualification.environment.region||record.status==='passed'&&record.cacheEvidence.series!==qualification.cacheEvidence.series||record.toolVersion.reported!==qualification.toolVersion.reported||record.toolVersion.sha256!==qualification.toolVersion.sha256)throw Error('Imported application/version/environment/cache metadata differs from qualification');
     const contains=(actual,want)=>Array.isArray(want)?Array.isArray(actual)&&actual.length===want.length&&want.every((v,i)=>contains(actual[i],v)):want&&typeof want==='object'?actual&&Object.entries(want).every(([k,v])=>contains(actual[k],v)):actual===want;
     if(record.status==='passed'&&record.kind==='deploy'){
@@ -141,9 +168,11 @@ try {
       }
     }
     for(const item of qualification.qualificationEvidence)if(await sha256(path.resolve(root,item.file))!==item.sha256)throw Error('Qualification evidence checksum mismatch');
+    for(const item of qualification.buildTiming?.qualificationEvidence||[])if(await sha256(path.resolve(root,item.file))!==item.sha256)throw Error('Build boundary qualification checksum mismatch');
     if(record.status==='passed'){const proof=await readCacheEvidence(record.cacheEvidence.proofFile,record.cacheEvidence);if(proof.proofSHA!==record.cacheEvidence.proofSHA)throw Error('Cache proof checksum differs from imported record');if(JSON.stringify(proof)!==JSON.stringify(record.cacheEvidence))throw Error('Imported cache evidence differs from its immutable proof');}
     await verifyImportedPredecessor(record);
     for(const item of record.evidence) { if(!item.file||!item.sha256) throw Error('Evidence requires file and SHA256'); if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Evidence checksum mismatch: '+item.file); }
+    await verifyImportedBuildTiming(record,{base:root});
     if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='oci-compressed') {
       const selected=qualification.artifacts.images[0];
       if(record.artifacts.name!==selected.name||record.artifacts.platform!==(qualification.artifacts.platform||'linux/amd64')||selected.expectedDigest&&record.artifacts.manifestDigest!==selected.expectedDigest)throw Error('Imported OCI image/platform/digest differs from qualification');

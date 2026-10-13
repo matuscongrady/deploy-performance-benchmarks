@@ -10,6 +10,8 @@ import (
  "path/filepath"
  "sync"
 
+ "golang.org/x/sys/unix"
+
  "github.com/sst/sst/v3/pkg/runtime"
  "github.com/sst/sst/v3/pkg/runtime/node"
 )
@@ -25,6 +27,11 @@ func main() {
  var wg sync.WaitGroup
  var outputLock sync.Mutex
  encoder := json.NewEncoder(os.Stdout)
+ if os.Getenv("BENCH_BUILD_TIMING_FILE") != "" {
+  var ts unix.Timespec
+  if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil { fail(err) }
+  if err := encoder.Encode(struct { Event string `json:"event"`; Clock string `json:"clock"`; MonotonicNs string `json:"monotonicNs"` }{"build-stage-start","linux-clock-monotonic-nanoseconds",fmt.Sprintf("%d",ts.Nano())}); err != nil { fail(err) }
+ }
  for i := range inputs {
   inputs[i].CfgPath = cfg
   wg.Add(1)

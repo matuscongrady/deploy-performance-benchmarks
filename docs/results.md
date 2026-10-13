@@ -11,6 +11,8 @@ Required fields:
 | `kind`, `status` | `package` or `deploy`; `passed`, `failed` or `unqualified` |
 | `startedAt`, `finishedAt`, `durationMs` | Observed timer boundaries and elapsed milliseconds |
 | `commandDurationMs` | Optional native command elapsed time; not deployment readiness |
+| `buildTiming` | Reviewed Lambda build interval with original marker/input evidence; absent in historical operation-only records |
+| `operationTiming` | Shared monotonic envelope of the unchanged complete recipe clock, when a matched build clock is measured |
 | `toolVersion` | Reported CLI/builder version; candidate binary SHA256/source reference |
 | `environment`, `timerHost` | Actual builder/CI runner capacity and region; Git push timing machine is recorded separately |
 | `settings` | Builder, minification, external dependencies, hotswap/fallback and rollout behavior |
@@ -18,6 +20,26 @@ Required fields:
 | `evidence` | Relative log/artifact paths and SHA256 checksums |
 | `readiness` | Deployment business probe responses with correct revisions |
 | `artifacts` | Packaging’s complete artifact set, format, sizes and hashes |
+
+## Two Lambda packaging times
+
+`durationMs` stays the complete recipe invocation time. `buildTiming.durationMs` measures native build planning through complete upload packages. It is observed during the same invocation, rather than calculated by subtracting other phases. New matched campaigns require `buildTiming.verified: true`; old records without that field remain operation-only records.
+
+The reviewed qualification adds `buildTiming` with `required: true`, `scope: "native-build-and-archive"`, `clock: "linux-clock-monotonic-nanoseconds"`, a fresh shared `campaignId`, and `producer: "candidate-trace"` or `"native-markers"`. It lists project-relative `configurationFiles`, repository-relative `instrumentationFiles`, their exact `configurationSha256` and `instrumentationSha256`, and saved native `qualificationEvidence` file/checksum pairs. Use `reviewBuildFiles` from `scripts/build-timing.mjs` to derive these descriptors during untimed qualification. Reviewing file names alone does not qualify changed instrumentation.
+
+Serverless also binds the actual project copies under `.benchmark-instrumentation/` as configuration inputs and verifies that their bytes equal the reviewed repository helper/plugin. Its `nativeMethodSha256` pins the four Framework 4.43 lifecycle methods observed during qualification. The plugin compares those expected fingerprints before wrapping or invoking any method; the collector and importer compare the retained native proof against the same manifest and qualification. A changed method or copied observer cannot pass by merely reporting its new hash.
+
+The runner writes a unique `build-inputs.json` before timing. Its identity includes provider, attempt, source SHA, app and fixture. File descriptors identify their project/repository base, relative path, role, bytes and SHA-256. Configuration and instrumentation digests hash their respective sorted descriptor arrays. The provider verifies these inputs before observing its native build. The input manifest is immutable evidence, not an application upload.
+
+The runner supplies only file paths, hashes and benchmark identities through `BENCH_BUILD_TIMING_FILE`, `BENCH_BUILD_INPUT_MANIFEST`, `BENCH_BUILD_INPUT_MANIFEST_SHA256`, `BENCH_BUILD_CONFIG_SHA256`, `BENCH_PROVIDER`, `BENCH_RUN_ID`, `BENCH_SOURCE_COMMIT`, `BENCH_APP_ID` and `BENCH_FIXTURE`. For the candidate, it also opts into the original trace with `STP_TIMINGS_FILE`, `STP_TIMINGS_BINDINGS_SHA256` and `STP_TIMINGS_CONFIG_SHA256`. No token, encryption key or request body belongs in these fields or proofs.
+
+Native marker proofs retain `startNs` and `endNs` in the shared monotonic clock, exactly one `build:start` and `artifacts:ready` marker, successful outcome, current identity/input/configuration hashes and every final file's name, role, path, bytes and checksum. CDK additionally retains `nativeOutputPath` when its observer copies a completed native ZIP. The collector checks that the copied bytes equal that original ZIP. Candidate proofs retain the original trace, its process ID, both clock anchors, successful span and build-context hashes. Imports reparse these original files and reject a changed summary, process, source, configuration, artifact set or checksum.
+
+Every matched result retains `buildTiming.nativeEvidence` and `inputEvidence` as file/SHA-256 pairs also present in `evidence`, plus normalized start/end/duration, configuration/instrumentation digests and artifact bindings. The original evidence must remain available with the record. A failed or unqualified attempt still retains any produced original trace and does not contribute a build sample.
+
+Summaries retain the legacy `medianSeconds` operation value and also name it `medianOperationSeconds`, with its full range. `medianBuildSeconds`, its range and `buildSamples` are separate. `buildPublishable` requires ten complete comparison rounds: each round has all four providers on the same `runId` and `sourceCommit`, in the same fixture/cache/campaign/capacity, with one unchanged recipe per provider. `matchedSourceRounds` exposes that count. An incomplete quartet cannot be hidden by ten unrelated samples per tool. Use only `buildPublishable` for the build-speed chart. `operationPublishable` supports a clearly labelled complete-recipe chart; `sizePublishable` supports the upload-size chart. Neither implies a matched build comparison.
+
+Failed and unqualified matched attempts keep the same campaign, configuration/instrumentation digests and artifact format as their passed counterparts, plus original input and any available native trace evidence. A missing trace leaves `verified: false`; it does not turn the attempt into an operation-only campaign or remove it from failure counts.
 
 For a deployment, `readiness.verified` must be true, with observations of every selected component. For five services, three observations have the new revision and two have the baseline revision. Also retain the baseline commit and response evidence. Five-service records require `reuse.verified: true` and native before/after identity observations for inventory and webhooks, including artifact IDs, deployment ID and configuration hash. Version probes alone cannot establish that those services were reused. A managed build needs build ID, phase timestamps and complete log evidence. Git journeys need the pushed SHA and local push start, plus `pipelineCompletion` showing native terminal success for that SHA. The completion check runs after the business readiness timer. The five-service after snapshot runs only after successful native pipeline completion, so a later replacement cannot escape the unchanged-service check. A failed pipeline cannot qualify a result even if a changed function briefly answered correctly.
 

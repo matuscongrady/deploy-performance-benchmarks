@@ -5,6 +5,7 @@ import {createRequire} from 'node:module';
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {createHash} from 'node:crypto';
+import {createBuildTiming,monotonicNs,buildClock} from './build-timing.mjs';
 const [repoRoot]=process.argv.slice(2);
 if(!repoRoot)throw Error('Usage: node providers/package-sst.mjs REPO_ROOT');
 const cache=path.resolve(repoRoot,'.work/sst-native');
@@ -22,21 +23,26 @@ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 // The code below is extracted verbatim from the checksum-verified release.
 const nativeArchive=new AsyncFunction('fs','path','archiver','glob','bundle','zipPath','sourcemaps','dev','copyFiles','wrapper',body);
 const capture=path.resolve('package-artifacts');await mkdir(capture,{recursive:true});
+const stage=await createBuildTiming('sst');
+if(stage.enabled&&createHash('sha256').update(await readFile(path.join(repoRoot,'providers/sst-native-main.go'))).digest('hex')!==provenance.helperSha)throw Error('Recompile the current SST timing bridge outside measurement');
 const child=spawn(path.join(cache,'source/native-package'),[],{cwd:process.cwd(),env:process.env,stdio:['pipe','pipe','inherit']});
 const finished=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',code=>code===0?resolve():reject(Error('Pinned SST native function runtime failed')));});
 finished.catch(()=>{});
 child.stdin.on('error',()=>{});
 child.stdin.end(JSON.stringify(inputs));
-const jobs=[],seen=new Set();
+const jobs=[],seen=new Set(),readyTimes=[];
 try{
  for await(const line of createInterface({input:child.stdout})){
-  const {index,output}=JSON.parse(line);
+  const message=JSON.parse(line);
+  if(message.event){if(!stage.enabled||message.event!=='build-stage-start'||message.clock!==buildClock)throw Error('Unexpected native SST build marker');stage.start(message.monotonicNs);continue;}
+  const {index,output}=message;
   if(!Number.isInteger(index)||!inputs[index]||seen.has(index))throw Error('Unexpected native build output');
   seen.add(index);
   // Match the native dependency graph: archive each function immediately after its build completes.
   const job=(async()=>{
    const zipPath=path.join(capture,inputs[index].functionID+'.zip');
    await nativeArchive(fs,path,archiver,glob,output.out,zipPath,output.sourcemaps,false,[],undefined);
+   if(stage.enabled)readyTimes.push(monotonicNs());
    const bytes=await readFile(zipPath);
    const name=inputs[index].functionID;
    const code={name,role:'function',handler:output.handler,module:output.handler.slice(0,output.handler.lastIndexOf('.'))+'.mjs',runtime:'nodejs22.x',path:zipPath,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
@@ -57,5 +63,6 @@ try{
 }catch(error){child.kill();await Promise.allSettled(jobs);await finished.catch(()=>{});throw error;}
 const artifacts=(await Promise.all(jobs)).flat().sort((a,b)=>inputs.findIndex(i=>i.functionID===a.name)-inputs.findIndex(i=>i.functionID===b.name));
 const codeBytes=artifacts.filter(a=>a.role!=='source-map').reduce((n,a)=>n+a.bytes,0),sourceMapBytes=artifacts.filter(a=>a.role==='source-map').reduce((n,a)=>n+a.bytes,0);
+if(stage.enabled){stage.finish(readyTimes.reduce((a,b)=>BigInt(a)>BigInt(b)?a:b));await stage.commit(artifacts,{startBoundary:'native Collection.Build scheduling',endBoundary:'last native Function archive close; runtime source maps already written',provenance});}
 await writeFile(path.join(capture,'manifest.json'),JSON.stringify({provider:'sst',sourceRoot:path.dirname(path.dirname(inputs[0].handler)),method:'pinned upstream runtime Collection.Build plus verbatim native Function archive body; no deploy/publish',qualificationRequired:true,encryptionKeySource:'environment; value not recorded',provenance,artifacts,sourceCommit:process.env.BENCH_SOURCE_COMMIT,runId:process.env.BENCH_RUN_ID,totalCompressedBytes:codeBytes,codeBytes,sourceMapBytes,totalUploadBytes:codeBytes+sourceMapBytes},null,2)+'\n');
 console.log(JSON.stringify({artifacts:artifacts.length,totalCompressedBytes:codeBytes,sourceMapBytes,totalUploadBytes:codeBytes+sourceMapBytes}));

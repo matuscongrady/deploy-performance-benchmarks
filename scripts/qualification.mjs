@@ -2,8 +2,11 @@ import path from 'node:path';
 import {readFile} from 'node:fs/promises';
 import {root,json} from './lib.mjs';
 import {needsSstRollout,validateSstRolloutBindings} from './sst-rollout.mjs';
+import {validateBuildQualification,verifyBuildQualificationEvidence} from './build-timing.mjs';
 function contains(actual,expected) {if(Array.isArray(expected))return Array.isArray(actual)&&actual.length===expected.length&&expected.every((v,i)=>contains(actual[i],v));if(expected&&typeof expected==='object')return actual&&Object.entries(expected).every(([k,v])=>contains(actual[k],v));return actual===expected;}
 export async function checkQualification(q,scenario,provider,{sourceBound=false}={}) {
+  validateBuildQualification(q,scenario,provider);
+  await verifyBuildQualificationEvidence(q,{base:root});
   if(q.scenario!==scenario.id||q.provider!==provider||q.approved!==true)throw Error('A matching reviewed qualification file is required');
   if(!q.toolVersion?.reported||!q.cacheEvidence?.series||!q.environment?.region)throw Error('Qualification must record actual version, cache series and region');
   if(provider==='candidate'&&(!/^[a-f0-9]{64}$/.test(q.toolVersion.sha256||'')||!q.toolVersion.source))throw Error('The candidate needs its exact executable hash and source reference');
