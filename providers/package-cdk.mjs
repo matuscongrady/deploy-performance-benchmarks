@@ -32,7 +32,7 @@ for(const template of templates)for(const [name,resource]of Object.entries(templ
  consumers.push({name:selectedFunction?.name,logicalId:name,functionName:resource.Properties?.FunctionName,kind:resource.Type==='AWS::Lambda::Function'?'function':'layer'});
  usage.set(assetId,consumers);
 }
-const artifacts=[];const seen=new Set();const jobs=[];const readyTimes=[];
+const artifacts=[];const seen=new Set();const jobs=[];
 const host={aws:new Proxy({}, {get(){throw new Error('AWS access is forbidden in the packaging-only adapter');}}),emitMessage(){},aborted:false};
 for(const name of(await readdir(out)).filter(n=>n.endsWith('.assets.json'))){
  const manifest=AssetManifest.fromFile(join(out,name));
@@ -44,20 +44,27 @@ for(const name of(await readdir(out)).filter(n=>n.endsWith('.assets.json'))){
   const handler=new FileAssetHandler(manifest.directory,asset,host);
   if(typeof handler.packageFile!=='function')throw new Error('Pinned CDK native archive API changed');
   const built=await handler.packageFile(asset.source);
-  if(stage.enabled)readyTimes.push(monotonicNs());
-  const consumers=usage.get(asset.id.assetId);
-  if(consumers.length!==1)throw Error('Selected recipe unexpectedly shares a code asset; qualify its distinct consumer binding before proceeding');
-  const consumer=consumers[0];
-  const target=join(capture,(consumer.name||asset.id.assetId)+'.zip');await copyFile(built.packagedPath,target);
-  const bytes=await readFile(target);
-  artifacts.push({name:consumer.name,role:consumer.kind,handler:consumer.kind==='function'?'index.handler':undefined,module:consumer.kind==='function'?'index.js':undefined,runtime:'nodejs22.x',consumers,path:target,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),assetId:asset.id.assetId,...stage.enabled&&{nativeOutputPath:built.packagedPath}});
+  const readyAt=stage.enabled?monotonicNs():undefined;
+  return {built,assetId:asset.id.assetId,readyAt};
   });
  }
 }
 // The pinned CDK CLI uses eight asset-publish jobs; file zipping happens inside that phase.
-let next=0;await Promise.all(Array.from({length:Math.min(8,jobs.length)},async()=>{while(next<jobs.length)await jobs[next++]();}));
+let next=0;const completed=[];
+await Promise.all(Array.from({length:Math.min(8,jobs.length)},async()=>{while(next<jobs.length)completed.push(await jobs[next++]());}));
+if(completed.length!==usage.size || !completed.length)throw new Error('Native archives did not cover all application function/layer assets');
+if(stage.enabled)stage.finish(completed.map(c=>c.readyAt).reduce((a,b)=>BigInt(a)>BigInt(b)?a:b));
+// Observation starts only after every native archive has released its worker slot.
+for(const {built,assetId} of completed){
+ const consumers=usage.get(assetId);
+ if(consumers.length!==1)throw Error('Selected recipe unexpectedly shares a code asset; qualify its distinct consumer binding before proceeding');
+ const consumer=consumers[0];
+ const target=join(capture,(consumer.name||assetId)+'.zip');await copyFile(built.packagedPath,target);
+ const bytes=await readFile(target);
+ artifacts.push({name:consumer.name,role:consumer.kind,handler:consumer.kind==='function'?'index.handler':undefined,module:consumer.kind==='function'?'index.js':undefined,runtime:'nodejs22.x',consumers,path:target,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),assetId,...stage.enabled&&{nativeOutputPath:built.packagedPath}});
+}
 artifacts.sort((a,b)=>selected.findIndex(f=>f.name===a.name)-selected.findIndex(f=>f.name===b.name));
 if(artifacts.length!==usage.size || !artifacts.length)throw new Error('Native ZIP capture did not cover all application function/layer assets');
-if(stage.enabled){stage.finish(readyTimes.reduce((a,b)=>BigInt(a)>BigInt(b)?a:b));await stage.commit(artifacts,{startBoundary:'immediately before first native NodejsFunction construction',endBoundary:'last native FileAssetHandler.packageFile completion',nativeArchiveMethodSha256:createHash('sha256').update(FileAssetHandler.prototype.packageFile.toString()).digest('hex')});}
+if(stage.enabled){await stage.commit(artifacts,{startBoundary:'immediately before first native NodejsFunction construction',endBoundary:'last native FileAssetHandler.packageFile completion',nativeArchiveMethodSha256:createHash('sha256').update(FileAssetHandler.prototype.packageFile.toString()).digest('hex')});}
 await writeFile(join(capture,'manifest.json'),JSON.stringify({provider:'cdk',sourceRoot:plan.readiness.sourceRoot||'app',method:'native application synthesis plus pinned native FileAssetHandler.packageFile; no publish',qualificationRequired:true,archiveConcurrency:8,artifacts,totalCompressedBytes:artifacts.reduce((n,a)=>n+a.bytes,0)},null,2)+'\n');
 console.log(JSON.stringify({artifacts:artifacts.length,totalCompressedBytes:artifacts.reduce((n,a)=>n+a.bytes,0)}));

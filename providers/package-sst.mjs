@@ -30,7 +30,7 @@ const finished=new Promise((resolve,reject)=>{child.once('error',reject);child.o
 finished.catch(()=>{});
 child.stdin.on('error',()=>{});
 child.stdin.end(JSON.stringify(inputs));
-const jobs=[],seen=new Set(),readyTimes=[];
+const jobs=[],seen=new Set();
 try{
  for await(const line of createInterface({input:child.stdout})){
   const message=JSON.parse(line);
@@ -42,18 +42,7 @@ try{
   const job=(async()=>{
    const zipPath=path.join(capture,inputs[index].functionID+'.zip');
    await nativeArchive(fs,path,archiver,glob,output.out,zipPath,output.sourcemaps,false,[],undefined);
-   if(stage.enabled)readyTimes.push(monotonicNs());
-   const bytes=await readFile(zipPath);
-   const name=inputs[index].functionID;
-   const code={name,role:'function',handler:output.handler,module:output.handler.slice(0,output.handler.lastIndexOf('.'))+'.mjs',runtime:'nodejs22.x',path:zipPath,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
-   const sourceMaps=[];
-   for(const source of output.sourcemaps||[]) {
-     const file=path.resolve(source),relative=path.relative(process.cwd(),file);
-     if(relative.startsWith('..')||path.isAbsolute(relative))throw Error('Native source map is outside the generated project');
-     const raw=await readFile(file);
-     sourceMaps.push({name,role:'source-map',path:file,bytes:raw.length,sha256:createHash('sha256').update(raw).digest('hex'),uploadedSeparately:true,nativeUpload:'SST Function createCode uploads each Runtime.BuildOutput.sourcemaps file outside the code ZIP'});
-   }
-   return [code,...sourceMaps];
+   return {index,output,zipPath,readyAt:stage.enabled?monotonicNs():undefined};
   })();
   // Register a handler immediately so an archive failure is not an unhandled rejection.
   job.catch(()=>child.kill());jobs.push(job);
@@ -61,8 +50,23 @@ try{
  await finished;
  if(seen.size!==inputs.length)throw Error('Native SST build output count mismatch');
 }catch(error){child.kill();await Promise.allSettled(jobs);await finished.catch(()=>{});throw error;}
-const artifacts=(await Promise.all(jobs)).flat().sort((a,b)=>inputs.findIndex(i=>i.functionID===a.name)-inputs.findIndex(i=>i.functionID===b.name));
+const completed=await Promise.all(jobs);
+if(stage.enabled)stage.finish(completed.map(c=>c.readyAt).reduce((a,b)=>BigInt(a)>BigInt(b)?a:b));
+// Reading/hashing proof must not compete with native builds or their archive jobs.
+const artifacts=[];
+for(const {index,output,zipPath} of completed){
+ const bytes=await readFile(zipPath);
+ const name=inputs[index].functionID;
+ artifacts.push({name,role:'function',handler:output.handler,module:output.handler.slice(0,output.handler.lastIndexOf('.'))+'.mjs',runtime:'nodejs22.x',path:zipPath,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')});
+ for(const source of output.sourcemaps||[]){
+  const file=path.resolve(source),relative=path.relative(process.cwd(),file);
+  if(relative.startsWith('..')||path.isAbsolute(relative))throw Error('Native source map is outside the generated project');
+  const raw=await readFile(file);
+  artifacts.push({name,role:'source-map',path:file,bytes:raw.length,sha256:createHash('sha256').update(raw).digest('hex'),uploadedSeparately:true,nativeUpload:'SST Function createCode uploads each Runtime.BuildOutput.sourcemaps file outside the code ZIP'});
+ }
+}
+artifacts.sort((a,b)=>inputs.findIndex(i=>i.functionID===a.name)-inputs.findIndex(i=>i.functionID===b.name));
 const codeBytes=artifacts.filter(a=>a.role!=='source-map').reduce((n,a)=>n+a.bytes,0),sourceMapBytes=artifacts.filter(a=>a.role==='source-map').reduce((n,a)=>n+a.bytes,0);
-if(stage.enabled){stage.finish(readyTimes.reduce((a,b)=>BigInt(a)>BigInt(b)?a:b));await stage.commit(artifacts,{startBoundary:'native Collection.Build scheduling',endBoundary:'last native Function archive close; runtime source maps already written',provenance});}
+if(stage.enabled){await stage.commit(artifacts,{startBoundary:'native Collection.Build scheduling',endBoundary:'last native Function archive close; runtime source maps already written',provenance});}
 await writeFile(path.join(capture,'manifest.json'),JSON.stringify({provider:'sst',sourceRoot:path.dirname(path.dirname(inputs[0].handler)),method:'pinned upstream runtime Collection.Build plus verbatim native Function archive body; no deploy/publish',qualificationRequired:true,encryptionKeySource:'environment; value not recorded',provenance,artifacts,sourceCommit:process.env.BENCH_SOURCE_COMMIT,runId:process.env.BENCH_RUN_ID,totalCompressedBytes:codeBytes,codeBytes,sourceMapBytes,totalUploadBytes:codeBytes+sourceMapBytes},null,2)+'\n');
 console.log(JSON.stringify({artifacts:artifacts.length,totalCompressedBytes:codeBytes,sourceMapBytes,totalUploadBytes:codeBytes+sourceMapBytes}));

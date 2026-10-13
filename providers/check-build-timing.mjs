@@ -19,7 +19,55 @@ async function environment(provider){
  const env={BENCH_BUILD_TIMING_FILE:path.join(root,'evidence-'+id+'.json'),BENCH_BUILD_INPUT_MANIFEST:input,BENCH_BUILD_INPUT_MANIFEST_SHA256:hash(await readFile(input)),BENCH_BUILD_CONFIG_SHA256:configurationSha256,BENCH_PROVIDER:provider,BENCH_RUN_ID:identity.runId,BENCH_SOURCE_COMMIT:identity.sourceCommit,BENCH_APP_ID:identity.appId,BENCH_FIXTURE:identity.fixture};return {project,env,manifest};
 }
 async function zip(project){const file=path.join(project,'report.zip');const made=spawnSync('python3',['-c','import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],"w"); z.writestr("index.js","exports.handler=()=>({revision: \'current\'})"); z.close()',file],{encoding:'utf8'});assert.equal(made.status,0,made.stderr);return {name:'report',role:'function',path:'report.zip'};}
+async function deferredObserverRegression(){
+ const syncFs=await import('node:fs');
+ const preload=path.join(root,'observe-file-io.mjs');
+ await writeFile(preload,`import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+ const record=(name,file)=>fs.appendFileSync(process.env.EVENT_LOG,JSON.stringify({name,file:String(file),ns:process.hrtime.bigint().toString()})+'\\n');
+ for(const method of ['copyFile','readFile']){const original=fs.promises[method];fs.promises[method]=async function(...args){const file=String(args[method==='copyFile'?1:0]);if(file.endsWith('.zip')&&file.includes('package-artifacts')||file.endsWith('.native-map.json')){record('observer:'+method,file);await new Promise(r=>setTimeout(r,3));}return original.apply(this,args);};}syncBuiltinESMExports();`);
+ async function refresh(context){
+  context.manifest.fixture='lambda-25';context.env.BENCH_FIXTURE='lambda-25';
+  for(const d of context.manifest.files){const bytes=await readFile(path.join(d.base==='project'?context.project:repository,d.path));d.bytes=bytes.length;d.sha256=hash(bytes);}
+  context.manifest.configurationSha256=hash(JSON.stringify(context.manifest.files.filter(d=>d.role==='configuration')));context.env.BENCH_BUILD_CONFIG_SHA256=context.manifest.configurationSha256;
+  await writeFile(context.env.BENCH_BUILD_INPUT_MANIFEST,JSON.stringify(context.manifest));context.env.BENCH_BUILD_INPUT_MANIFEST_SHA256=hash(await readFile(context.env.BENCH_BUILD_INPUT_MANIFEST));
+ }
+ async function spawnAdapter(provider,context,arg,eventLog){
+  await refresh(context);
+  const env={...process.env,...context.env,EVENT_LOG:eventLog};delete env.NODE_OPTIONS;
+  const native=spawnSync(process.execPath,['--import',preload,path.join(repository,'providers','package-'+provider+'.mjs'),arg],{cwd:context.project,env,encoding:'utf8',timeout:30000});
+  assert.equal(native.status,0,native.stderr+'\n'+native.stdout);
+  const events=(await readFile(eventLog,'utf8')).trim().split('\n').map(JSON.parse),done=events.filter(e=>e.name==='native:done'),observer=events.filter(e=>e.name.startsWith('observer:'));
+  assert.equal(done.length,25);assert.ok(observer.length>=25);
+  const firstObserver=events.findIndex(e=>e.name.startsWith('observer:'));
+  assert.equal(events.slice(0,firstObserver).filter(e=>e.name==='native:done').length,25,'Every native archive must finish before observer I/O starts');
+  const proof=JSON.parse(await readFile(context.env.BENCH_BUILD_TIMING_FILE));assert.equal(proof.files.filter(f=>f.role==='function').length,25);
+  assert.ok(BigInt(proof.endNs)>=BigInt(done.at(-1).ns)&&BigInt(proof.endNs)<BigInt(observer[0].ns),'Readiness uses the native completion clock before deferred observation');
+  const manifest=JSON.parse(await readFile(path.join(context.project,'package-artifacts/manifest.json')));
+  for(const binding of manifest.artifacts){assert.equal(binding.sha256,hash(await readFile(binding.path)));if(binding.role==='function')assert.equal((await readFile(binding.path)).toString('hex'),Buffer.concat([Buffer.from([80,75,3,4]),Buffer.from(binding.name)]).toString('hex'));}
+  return events;
+ }
+ const cdk=await environment('cdk'),tool=path.join(root,'fake-cdk'),assetsLib=path.join(tool,'node_modules/@aws-cdk/cdk-assets-lib');await mkdir(path.join(assetsLib,'private/handlers'),{recursive:true});await writeFile(path.join(tool,'package.json'),'{}');await writeFile(path.join(assetsLib,'package.json'),JSON.stringify({main:'index.cjs'}));
+ await writeFile(path.join(assetsLib,'index.cjs'),`const fs=require('node:fs'),path=require('node:path');exports.AssetManifest={fromFile(file){return {directory:path.dirname(file),files:JSON.parse(fs.readFileSync(file)).files}}};`);
+ await writeFile(path.join(assetsLib,'private/handlers/files.js'),`const fs=require('node:fs'),path=require('node:path');exports.FileAssetHandler=class{constructor(directory,asset){this.directory=directory;this.asset=asset;}async packageFile(){const name=this.asset.source.name;fs.appendFileSync(process.env.EVENT_LOG,JSON.stringify({name:'native:start',ns:process.hrtime.bigint().toString()})+'\\n');await new Promise(r=>setTimeout(r,4+Number(name.split('-')[1])%5));const packagedPath=path.join(this.directory,name+'.zip');await fs.promises.writeFile(packagedPath,Buffer.concat([Buffer.from([80,75,3,4]),Buffer.from(name)]));fs.appendFileSync(process.env.EVENT_LOG,JSON.stringify({name:'native:done',ns:process.hrtime.bigint().toString()})+'\\n');return {packagedPath};}};`);
+ await writeFile(path.join(cdk.project,'cdk-app.mjs'),`import {mkdir,writeFile} from 'node:fs/promises';import path from 'node:path';const {writeBuildStart}=await import(process.env.BENCH_BUILD_STAGE_HELPER);await writeBuildStart('cdk');const out=process.env.CDK_OUTDIR;await mkdir(out,{recursive:true});const Resources={},files=[];for(let i=0;i<25;i++){const assetId=i.toString(16).padStart(64,'0');Resources['Function'+i]={Type:'AWS::Lambda::Function',Properties:{FunctionName:'native-'+i,Code:{S3Key:assetId+'.zip'}}};files.push({id:{assetId},source:{name:'function-'+i}});}await writeFile(path.join(out,'app.template.json'),JSON.stringify({Resources}));await writeFile(path.join(out,'app.assets.json'),JSON.stringify({files}));`);
+ await writeFile(path.join(cdk.project,'provider-plan.json'),JSON.stringify({readiness:{sourceRoot:'app',functions:Array.from({length:25},(_,i)=>({name:'function-'+i,functionName:'native-'+i}))}}));
+ const cdkEvents=await spawnAdapter('cdk',cdk,tool,path.join(root,'cdk-observer-events.jsonl'));
+ let active=0,maxActive=0;for(const e of cdkEvents){if(e.name==='native:start')maxActive=Math.max(maxActive,++active);if(e.name==='native:done')active--;assert.ok(active>=0&&active<=8);}assert.equal(maxActive,8);assert.equal(active,0);
+ const sst=await environment('sst'),fakeRepo=path.join(root,'fake-sst-repo'),cache=path.join(fakeRepo,'.work/sst-native');await mkdir(path.join(cache,'source'),{recursive:true});await mkdir(path.join(fakeRepo,'providers/tools/sst/node_modules'),{recursive:true});await writeFile(path.join(fakeRepo,'providers/tools/sst/package.json'),'{}');
+ for(const name of ['archiver','glob']){const dir=path.join(fakeRepo,'providers/tools/sst/node_modules',name);await mkdir(dir);await writeFile(path.join(dir,'package.json'),'{}');await writeFile(path.join(dir,'index.js'),'module.exports={}');}
+ const helper=await readFile(path.join(repository,'providers/sst-native-main.go'));await writeFile(path.join(fakeRepo,'providers/sst-native-main.go'),helper);
+ const binary=path.join(cache,'source/native-package');await writeFile(binary,`#!${process.execPath}\nconst fs=require('node:fs'),path=require('node:path');let text='';process.stdin.on('data',b=>text+=b);process.stdin.on('end',async()=>{const inputs=JSON.parse(text);console.log(JSON.stringify({event:'build-stage-start',clock:'linux-clock-monotonic-nanoseconds',monotonicNs:process.hrtime.bigint().toString()}));for(let index=0;index<inputs.length;index++){const map=path.resolve(inputs[index].functionID+'.native-map.json');fs.writeFileSync(map,JSON.stringify({version:3,sources:['source.js']}));console.log(JSON.stringify({index,output:{out:inputs[index].functionID,handler:'index.handler',sourcemaps:[map]}}));await new Promise(r=>setTimeout(r,1));}});`);syncFs.chmodSync(binary,0o755);
+ const body=`fs.appendFileSync(process.env.EVENT_LOG,JSON.stringify({name:'native:start',ns:process.hrtime.bigint().toString()})+'\\n');await new Promise(r=>setTimeout(r,4+Number(bundle.split('-')[1])%5));await fs.promises.writeFile(zipPath,Buffer.concat([Buffer.from([80,75,3,4]),Buffer.from(bundle)]));fs.appendFileSync(process.env.EVENT_LOG,JSON.stringify({name:'native:done',ns:process.hrtime.bigint().toString()})+'\\n');`;
+ await writeFile(path.join(cache,'archive-body.js'),body);await writeFile(path.join(cache,'bridge.json'),JSON.stringify({archiveBodySha:hash(body),binarySha:hash(await readFile(binary)),helperSha:hash(helper)}));
+ await writeFile(path.join(sst.project,'sst-build-inputs.json'),JSON.stringify(Array.from({length:25},(_,i)=>({functionID:'function-'+i,handler:'app/handlers/function-'+i+'.mjs'}))));
+ sst.env.SST_PACKAGE_ENCRYPTION_KEY=Buffer.alloc(32).toString('base64');
+ const sstEvents=await spawnAdapter('sst',sst,fakeRepo,path.join(root,'sst-observer-events.jsonl'));assert.ok(sstEvents.some(e=>e.name==='observer:readFile'&&e.file.endsWith('.native-map.json')));
+ const sstProof=JSON.parse(await readFile(sst.env.BENCH_BUILD_TIMING_FILE));assert.equal(sstProof.files.filter(f=>f.role==='source-map').length,25);
+ console.log('Spawned 25-job CDK/SST adapters defer all observer copy/read/hash work until native readiness; CDK retains eight workers and native bytes/maps are unchanged. No cloud requests.');
+}
+
 try{
+ await deferredObserverRegression();
  const context=await environment('cdk'),stage=await createBuildTiming('cdk',{cwd:context.project,env:context.env});
  const before=monotonicNs(),child=spawnSync(process.execPath,['--input-type=module','-e',`const {writeBuildStart}=await import(${JSON.stringify(new URL('./build-timing.mjs',import.meta.url).href)});await writeBuildStart('cdk');`],{cwd:context.project,env:{...process.env,...context.env},encoding:'utf8'});assert.equal(child.status,0,child.stderr);const after=monotonicNs();await stage.readStart();const binding=await zip(context.project);stage.finish();const proof=await stage.commit([binding]);assert.ok(BigInt(proof.startNs)>=BigInt(before)&&BigInt(proof.startNs)<=BigInt(after));assert.equal(proof.markers.length,2);assert.equal(proof.files[0].sha256,hash(await readFile(path.join(context.project,'report.zip'))));await assert.rejects(stage.commit([binding]),/exactly one/);
  const omitted=await environment('cdk'),missing=await createBuildTiming('cdk',{cwd:omitted.project,env:omitted.env});await assert.rejects(missing.readStart(),{code:'ENOENT'});assert.throws(()=>missing.finish(),/Missing/);await assert.rejects(missing.commit([await zip(omitted.project)]),/exactly one/);
