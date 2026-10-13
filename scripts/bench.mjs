@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import os from 'node:os';
+import {isDeepStrictEqual} from 'node:util';
 import {mkdir,readFile,copyFile} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord,readCacheEvidence} from './lib.mjs';
@@ -22,7 +23,8 @@ try {
     const appId=safeId(flags['app-id']||runId,'application ID');
     const outputDir=path.join(root,'.work',appId,provider); await mkdir(outputDir,{recursive:true});
     const {prepare}=await import('../providers/index.mjs');
-    const plan=await prepare({provider,scenario,outputDir,repoRoot:root,runId:appId,region:flags.region||'eu-west-1',stage:flags.stage||'bench'});
+    const nativeBindings={...(flags.owner&&{owner:safeId(flags.owner,'benchmark owner')}),...(flags['sls-bucket']&&{serverless:{deploymentBucket:flags['sls-bucket']}}),...((flags['cdk-qualifier']||flags['cdk-toolkit'])&&{cdk:{qualifier:flags['cdk-qualifier'],toolkitStackName:flags['cdk-toolkit']}})};
+    const plan=await prepare({provider,scenario,outputDir,repoRoot:root,runId:appId,nativeBindings,region:flags.region||'eu-west-1',stage:flags.stage||'bench'});
     await save(path.join(outputDir,'plan.json'),plan);
     console.log(JSON.stringify({runId,appId,scenario:id,provider,...plan},null,2));
     if(operation==='prepare'||!flags.execute) { console.log('Prepared only. No build or deployment was started.'); process.exit(0); }
@@ -32,6 +34,7 @@ try {
     if(qualification.environment?.region!==(flags.region||'eu-west-1'))throw Error('Qualification region differs from the generated project');
     if(qualification.stage!==(flags.stage||'bench'))throw Error('Qualification stage differs from the generated project');
     if(qualification.appId!==appId)throw Error('Qualification application ID differs from --app-id');
+    if(!isDeepStrictEqual(qualification.nativeBindings||{},plan.nativeBindings||{}))throw Error('Native ownership/bootstrap bindings differ from qualification');
     const {checkQualification}=await import('./qualification.mjs');
     await checkQualification(qualification,scenario,provider,{sourceBound:true});
     for(const item of qualification.qualificationEvidence) if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Qualification evidence checksum mismatch');

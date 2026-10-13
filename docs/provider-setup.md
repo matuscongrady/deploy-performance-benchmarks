@@ -20,6 +20,16 @@ Tool packages and their transitive dependencies are pinned under `providers/tool
 
 Record the actual executable version and hash before a run. Hosted builders and runtime patch releases can change even when a local CLI is pinned; save their reported versions and build capacity. Generated Serverless configurations require the exact `frameworkVersion: 4.43.0`. The Serverless npm package starts a downloaded CLI: verify the downloaded executable reports the pinned version instead of assuming that the npm lockfile alone proves it.
 
+For an owned AWS test, pass the same native bindings to every `prepare` and `run` command. `--owner` generates `benchmark-owner` tags for candidate, Serverless and CDK; SST uses `benchmark:owner`. Serverless's `--sls-bucket` names its isolated, separately owned deployment bucket. CDK's `--cdk-qualifier` and `--cdk-toolkit` must be supplied together to bind its unique bootstrap. These options generate the configuration directly, so a timed run cannot erase a tag or bootstrap change made after preparation.
+
+```sh
+node scripts/bench.mjs prepare deploy-lambda-5-cli serverless \
+  --app-id commerce-five --run-id setup-001 --owner commerce-five-owner \
+  --sls-bucket commerce-five-artifacts
+```
+
+Copy the generated plan's `nativeBindings` object into the reviewed qualification file. The timed runner requires it to match the supplied flags. Create and record the isolated Serverless bucket and CDK bootstrap outside timing, and retain their exact cleanup IDs. Native application removal does not necessarily delete a supplied bucket or toolkit. Never patch these bindings only in generated files: preparation runs again before measurement.
+
 ## Candidate
 
 Set `CANDIDATE_CLI` to the absolute path of the reviewed executable. Record where the binary came from, its version, commit and SHA-256. Keep the generated file named `candidate.yml` and retain the neutral `projectName`.
@@ -48,7 +58,7 @@ The report function externalizes only PDFKit, whose fonts are runtime files. Exc
 
 Functions are invoked directly. An API Gateway is unnecessary for these tests. After setup, save each native function ARN/name in an ignored binding file and run the fixture's business probe against every selected function. A successful CLI exit is insufficient.
 
-Serverless Framework uses its built-in esbuild builder. Production minification is enabled and source maps are disabled. The report keeps PDFKit external for its font files and bundles ExcelJS/docx. Its native esbuild banner supplies `createRequire` for CommonJS dependencies in ESM output. Generated package rules exclude protocol plans, qualification state, native output bindings and logs. Every changed function receives its own `deploy function` command. The wrapper runs at most eight native commands concurrently and waits for all of them; set and record `BENCH_FUNCTION_CONCURRENCY` to change the limit. The total update includes the complete command group. Each command gets its own source/config working directory so concurrent packaging cannot overwrite another function's files. Dependencies are shared through links; the measured wrapper includes this small working-directory preparation.
+Serverless Framework uses its built-in esbuild builder. Production minification is enabled and source maps are disabled. The report keeps PDFKit external for its font files and bundles ExcelJS/docx. Its native esbuild banner supplies `createRequire` for CommonJS dependencies in ESM output. Generated package rules exclude protocol plans, qualification state, native output bindings, logs and isolated function contexts. Every changed function receives its own `deploy function` command. The wrapper runs at most eight native commands concurrently and waits for all of them; set and record `BENCH_FUNCTION_CONCURRENCY` to change the limit. Each command uses a stable `.parallel-functions/FUNCTION` directory to avoid concurrent packaging conflicts while retaining native `.serverless` dependencies and lockfiles. It refreshes source/config and removes obsolete source inputs before each command. Source dependencies are shared through links; the measured update includes this context refresh. Retained files permit native reuse but do not by themselves prove a cache hit.
 
 The other functions use native per-function package patterns to omit `node_modules`, because their imported dependencies are already bundled and none needs the report's external PDFKit files. The report keeps that installed dependency. This avoids shipping the report dependencies in every unrelated function without changing Serverless's builder or editing its ZIPs afterward. Native global dependency installation remains part of its packaging time.
 

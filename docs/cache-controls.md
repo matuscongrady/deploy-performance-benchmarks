@@ -32,6 +32,8 @@ The preceding result must have passed for the same application, provider and tes
 
 For CLI deployment updates, use `--series cli-existing-cache`. This observes the current qualified local paths without deleting them. It does not claim native cache hits. The native command logs remain evidence for reuse actually reported during the measured attempt.
 
+Serverless CLI updates keep per-function native state under `.parallel-functions/FUNCTION/.serverless`. Include `.parallel-functions` in the deployment qualification's `cacheControl.localPaths`; observing only the parent `.serverless` would miss the state used by these commands. The wrapper refreshes selected source/config while retaining native installed dependencies and lockfiles. Qualify and record actual native reuse before describing a warm update. These contexts are excluded from application packaging and removed with the owned generated project after cleanup.
+
 ## Docker image builds
 
 Do not prune the shared Docker daemon's cache. It may belong to another task. Use an isolated builder or the native provider's explicit no-cache setting for the clean series, and record the actual native Docker invocation. Keep the base-image state the same across tools. `--no-cache` disables layer reuse; it does not erase downloaded base images.

@@ -10,9 +10,15 @@ const safe = (v, label) => { if (!/^[a-z][a-z0-9-]{0,39}$/.test(v)) throw new Er
 const copySource = async (source, destination) => cp(source, destination, { recursive: true, filter: (p) => !p.split('/').some((s) => ['node_modules','.venv','__pycache__','.git','workload-locks'].includes(s)) });
 
 /** Generate a native provider project and a command plan. This never invokes a cloud API. */
-export async function prepare({ provider, scenario, outputDir, repoRoot, runId, region = 'eu-west-1', stage = 'bench' }) {
+export async function prepare({ provider, scenario, outputDir, repoRoot, runId, region = 'eu-west-1', stage = 'bench', nativeBindings = {} }) {
   if (!['candidate','serverless','sst','cdk','ravion','render','heroku'].includes(provider)) throw new Error(`Unknown provider: ${provider}`);
   repoRoot = resolve(repoRoot); outputDir = resolve(outputDir);
+  const owner=nativeBindings.owner; if(owner)safe(owner,'benchmark owner');
+  const bucket=nativeBindings.serverless?.deploymentBucket;
+  if(nativeBindings.serverless&&(provider!=='serverless'||typeof bucket!=='string'||!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)))throw Error('Supply an owned Serverless deployment bucket for Serverless only');
+  const bootstrap=nativeBindings.cdk;
+  if(bootstrap&&(provider!=='cdk'||!/^[a-z0-9]{1,10}$/.test(bootstrap.qualifier||'')||!bootstrap.toolkitStackName))throw Error('Supply both CDK bootstrap qualifier and toolkit stack name for CDK only');
+  if(bootstrap)safe(bootstrap.toolkitStackName,'CDK toolkit stack name');
   safe(stage, 'stage');
   if (!/^[a-z]{2}-[a-z]+-\d$/.test(region)) throw new Error('Invalid AWS region');
   const name = safe(`bench-${String(runId).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0,26)}`, 'runId');
@@ -36,7 +42,7 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
     for(const f of manifest.lambda.functions.filter(f=>!workload.functions.includes(f.name)))for(const path of [f.entry,f.revisionFile])await rm(join(outputDir,'app',relative(join(repoRoot,manifest.lambda.context),join(repoRoot,path))),{force:true});
   }
   else for (const svc of services) await copySource(join(repoRoot, svc.buildContext), join(outputDir, 'app', svc.name));
-  const result = { cwd: outputDir, appName:name, commands: {}, readiness: { type: isLambda ? 'lambda-invocation' : 'http-version-and-business-probe', fixture: scenario.fixture, manifest: join(repoRoot,'fixtures/manifest.json'), expectedOutputsFile: join(outputDir,'native-outputs.json') }, artifacts: { format: isLambda ? 'lambda-zips-and-layers' : 'provider-native', comparable: false, qualificationRequired: true }, notes: [], availability: 'qualification-required' };
+  const result = { cwd: outputDir, appName:name, nativeBindings, commands: {}, readiness: { type: isLambda ? 'lambda-invocation' : 'http-version-and-business-probe', fixture: scenario.fixture, manifest: join(repoRoot,'fixtures/manifest.json'), expectedOutputsFile: join(outputDir,'native-outputs.json') }, artifacts: { format: isLambda ? 'lambda-zips-and-layers' : 'provider-native', comparable: false, qualificationRequired: true }, notes: [], availability: 'qualification-required' };
   if (isLambda) result.commands.install = [['npm','ci','--ignore-scripts','--prefix',join(outputDir,'app')]];
   const tool = (p, binary = p) => join(repoRoot, 'providers/tools', p, 'node_modules/.bin', binary);
   if (['serverless','sst','cdk'].includes(provider)) {
@@ -57,7 +63,7 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
     const resourceName=(fixtureName)=>fixtureName.replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase());
     if(isLambda)result.readiness.functions=functions.map(f=>({name:f.name,resourceName:resourceName(f.name)}));
     const resources = Object.fromEntries(isLambda ? functions.map((f) => [resourceName(f.name), { type:'function', properties:{ runtime:'nodejs22.x', memory:512, timeout:30, packaging:{ type:'js-bundle', properties:{ entryfilePath:`app/${relative(join(repoRoot,manifest.lambda.context),join(repoRoot,f.entry))}`, nodeVersion:22,...f.name==='report'&&{dependenciesToExcludeFromBundle:['pdfkit']} } } } }]) : services.map((s) => [s.name, { type:'web-service', properties:{ resources:{cpu:0.25,memory:512}, packaging:scenario.fixture === 'python' ? {type:'buildpack',properties:{sourceDirectoryPath:`app/${s.name}`}} : {type:'js-bundle',properties:{entryfilePath:`app/${s.name}/server.mjs`,nodeVersion:22,outputModuleFormat:'esm'}}, environment:[{name:'PORT',value:'3000'}] } }]));
-    await write(outputDir,'candidate.yml',json({ projectName:name, resources }));
+    await write(outputDir,'candidate.yml',json({ projectName:name, resources,...owner&&{stackConfig:{tags:[{name:'benchmark-owner',value:owner}]}} }));
     const executable = process.env.CANDIDATE_CLI || '<CANDIDATE_CLI>';
     const common = ['--configPath','candidate.yml','--stage',stage,'--region',region,'--autoConfirmOperation'];
     result.commands.setup = [[executable,'deploy',...common,'--fullDeploy']];
@@ -73,7 +79,7 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
     for (const dep of Object.keys(fixtureDependencies)) {const target=join(outputDir,'node_modules',dep);await mkdir(dirname(target),{recursive:true});if (!(await exists(target))) await symlink(join(outputDir,'app/node_modules',dep),target,'dir');}
     const entries = Object.fromEntries(functions.map((f) => [f.name,{handler:`app/handlers/${f.name}.handler`,name:`${name}-${stage}-${f.name}`,...f.name!=='report'&&{package:{patterns:['!node_modules/**']}}} ]));
     await write(outputDir,'package.json',JSON.parse(await readFile(join(outputDir,'app/package.json'),'utf8')));
-    const config = { frameworkVersion:versions.serverless, service:name, provider:{name:'aws',runtime:'nodejs22.x',region,stage,memorySize:512,timeout:30}, package:{individually:true,patterns:['!app/check.mjs','!app/workloads.json','!app/package-lock.json','!provider-plan.json','!manifest.json','!plan.json','!qualification.json','!qualifications.json','!native-outputs.json','!**/*.log','!**/evidence/**']}, functions:entries, build:{esbuild:{minify:true,sourcemap:false,external:['pdfkit'],banner:{js:"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"}}} };
+    const config = { frameworkVersion:versions.serverless, service:name, provider:{name:'aws',runtime:'nodejs22.x',region,stage,memorySize:512,timeout:30,...bucket&&{deploymentBucket:{name:bucket,serverSideEncryption:'AES256'}},...owner&&{tags:{'benchmark-owner':owner},stackTags:{'benchmark-owner':owner}}}, package:{individually:true,patterns:['!app/check.mjs','!app/workloads.json','!app/package-lock.json','!provider-plan.json','!manifest.json','!plan.json','!qualification.json','!qualifications.json','!native-outputs.json','!**/*.log','!**/evidence/**','!.parallel-functions/**']}, functions:entries, build:{esbuild:{minify:true,sourcemap:false,external:['pdfkit'],banner:{js:"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"}}} };
     await write(outputDir,'serverless.yml',json(config));
     const common=['--stage',stage,'--region',region];
     result.commands.setup=[[tool(provider),'deploy',...common]];
@@ -86,7 +92,7 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
     result.readiness.functions=functions.map((f)=>({name:f.name,functionName:`${name}-${stage}-${f.name}`}));
   } else if (['sst','cdk'].includes(provider) && isLambda) {
     if (provider === 'sst') {
-      await write(outputDir,'sst.config.ts',`/// <reference path="./.sst/platform/config.d.ts" />\nexport default $config({\n app() { return { name:${JSON.stringify(name)},home:'aws',removal:'remove',providers:{aws:{region:${JSON.stringify(region)}}}}; },\n async run() {\n const functions = {};\n${functions.map((f)=>` const f_${f.name.replaceAll('-','_')} = new sst.aws.Function(${JSON.stringify(f.name)}, {handler:${JSON.stringify(`app/handlers/${f.name}.handler`)},runtime:'nodejs22.x',memory:'512 MB',timeout:'30 seconds',nodejs:{install:${JSON.stringify(f.name === 'report' ? ['pdfkit'] : [])}}});\n functions[${JSON.stringify(f.name)}]=f_${f.name.replaceAll('-','_')}.arn;`).join('\n')}\n return {functions};\n }\n});\n`);
+      await write(outputDir,'sst.config.ts',`/// <reference path="./.sst/platform/config.d.ts" />\nexport default $config({\n app() { return { name:${JSON.stringify(name)},home:'aws',removal:'remove',providers:{aws:{region:${JSON.stringify(region)}${owner?`,defaultTags:{tags:{'benchmark:owner':${JSON.stringify(owner)}}}`:''}}}}; },\n async run() {\n const functions = {};\n${functions.map((f)=>` const f_${f.name.replaceAll('-','_')} = new sst.aws.Function(${JSON.stringify(f.name)}, {handler:${JSON.stringify(`app/handlers/${f.name}.handler`)},runtime:'nodejs22.x',memory:'512 MB',timeout:'30 seconds',nodejs:{install:${JSON.stringify(f.name === 'report' ? ['pdfkit'] : [])}}});\n functions[${JSON.stringify(f.name)}]=f_${f.name.replaceAll('-','_')}.arn;`).join('\n')}\n return {functions};\n }\n});\n`);
       await write(outputDir,'sst-build-inputs.json',functions.map(f=>({dev:false,functionID:f.name,handler:`app/handlers/${f.name}.handler`,runtime:'nodejs22.x',links:{},copyFiles:[],properties:{architecture:'x86_64',install:f.name==='report'?{pdfkit:'*'}:{}}})));
       if(scenario.kind==='package')result.commands.install.push(['node',join(repoRoot,'providers/install-sst-bridge.mjs')]);
       result.commands.package=[['node',join(repoRoot,'providers/package-sst.mjs'),repoRoot]];
@@ -97,13 +103,13 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
       result.commands.cleanup=[[tool(provider),'remove',...common]];
       result.notes.push('SST cloud deploy uses its usual production build settings; PDFKit installed with its font assets; ExcelJS and docx remain bundled. Live mode is excluded. SST complete packaging uses the pinned upstream native-runtime bridge and platform archiver; byte/runtime parity still requires qualification.');
     } else {
-      await write(outputDir,'cdk.json',{app:'node cdk-app.mjs',context:{'@aws-cdk/core:newStyleStackSynthesis':true}});
-      await write(outputDir,'cdk-app.mjs',`import {App,Stack,CfnOutput,Duration} from 'aws-cdk-lib';\nimport {Runtime} from 'aws-cdk-lib/aws-lambda';\nimport {NodejsFunction} from 'aws-cdk-lib/aws-lambda-nodejs';\nimport {resolve} from 'node:path';\nconst app=new App(); const stack=new Stack(app,${JSON.stringify(name)}, {env:{region:${JSON.stringify(region)}}});\n${functions.map((f)=>`const f_${f.name.replaceAll('-','_')}=new NodejsFunction(stack,${JSON.stringify(f.name)},{entry:resolve(${JSON.stringify(`app/handlers/${f.name}.mjs`)}),handler:'handler',depsLockFilePath:resolve('app/package-lock.json'),projectRoot:resolve('app'),runtime:Runtime.NODEJS_22_X,functionName:${JSON.stringify(`${name}-${stage}-${f.name}`)},memorySize:512,timeout:Duration.seconds(30),bundling:{minify:true,sourceMap:false,nodeModules:${JSON.stringify(f.name === 'report' ? ['pdfkit'] : [])}}});\nnew CfnOutput(stack,${JSON.stringify(f.name.replaceAll('-','')+'Arn')},{value:f_${f.name.replaceAll('-','_')}.functionArn});`).join('\n')}\napp.synth();\n`);
-      const common=['--require-approval','never','--outputs-file','native-outputs.json'];
+      await write(outputDir,'cdk.json',{app:'node cdk-app.mjs',context:{'@aws-cdk/core:newStyleStackSynthesis':true,...bootstrap&&{'@aws-cdk/core:bootstrapQualifier':bootstrap.qualifier}}});
+      await write(outputDir,'cdk-app.mjs',`import {App,Stack,CfnOutput,Duration,Tags} from 'aws-cdk-lib';\nimport {Runtime} from 'aws-cdk-lib/aws-lambda';\nimport {NodejsFunction} from 'aws-cdk-lib/aws-lambda-nodejs';\nimport {resolve} from 'node:path';\nconst app=new App(); const stack=new Stack(app,${JSON.stringify(name)}, {env:{region:${JSON.stringify(region)}}});\n${functions.map((f)=>`const f_${f.name.replaceAll('-','_')}=new NodejsFunction(stack,${JSON.stringify(f.name)},{entry:resolve(${JSON.stringify(`app/handlers/${f.name}.mjs`)}),handler:'handler',depsLockFilePath:resolve('app/package-lock.json'),projectRoot:resolve('app'),runtime:Runtime.NODEJS_22_X,functionName:${JSON.stringify(`${name}-${stage}-${f.name}`)},memorySize:512,timeout:Duration.seconds(30),bundling:{minify:true,sourceMap:false,nodeModules:${JSON.stringify(f.name === 'report' ? ['pdfkit'] : [])}}});\nnew CfnOutput(stack,${JSON.stringify(f.name.replaceAll('-','')+'Arn')},{value:f_${f.name.replaceAll('-','_')}.functionArn});`).join('\n')}\n${owner?`Tags.of(stack).add('benchmark-owner',${JSON.stringify(owner)});\n`:''}app.synth();\n`);
+      const common=['--require-approval','never','--outputs-file','native-outputs.json',...(bootstrap?['--toolkit-stack-name',bootstrap.toolkitStackName]:[])];
       result.commands.setup=[[tool(provider),'deploy',...common]];
       result.commands.package=[['node',join(repoRoot,'providers/package-cdk.mjs'),join(repoRoot,'providers/tools/cdk')]];
       result.commands.update=[[tool(provider),'deploy','--hotswap',...common]];
-      result.commands.cleanup=[[tool(provider),'destroy','--force']];
+      result.commands.cleanup=[[tool(provider),'destroy','--force',...(bootstrap?['--toolkit-stack-name',bootstrap.toolkitStackName]:[])]];
       result.readiness.functions=functions.map((f)=>({name:f.name,functionName:`${name}-${stage}-${f.name}`}));
       result.notes.push('CDK NodejsFunction production minification enabled, maps disabled; PDFKit installed with font assets; ExcelJS and docx remain bundled. synth creates asset directories, not necessarily upload-ready ZIPs. --hotswap is documented by CDK for development and creates CloudFormation drift.');
     }
