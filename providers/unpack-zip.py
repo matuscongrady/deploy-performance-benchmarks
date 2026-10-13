@@ -20,14 +20,22 @@ def unpack_zip(archive, destination):
         entries, links, directories, seen = [], [], [], set()
         for info in source.infolist():
             name = pathlib.PurePosixPath(info.filename)
+            mode = info.external_attr >> 16
+            kind = stat.S_IFMT(mode)
+            # Native archivers may include the extraction root itself. It has
+            # no output path or content; accepting it must not allow root files
+            # or symbolic links to overwrite the extraction directory.
+            if info.filename == "./" and info.is_dir() and kind in (0, stat.S_IFDIR) and info.file_size == 0:
+                if "." in seen:
+                    raise ValueError("ZIP contains duplicate entry paths")
+                seen.add(".")
+                continue
             if not name.parts or name.is_absolute() or ".." in name.parts or "\\" in info.filename or any(":" in part for part in name.parts):
                 raise ValueError("ZIP entry has an unsafe path")
             if str(name) in seen:
                 raise ValueError("ZIP contains duplicate entry paths")
             seen.add(str(name))
             target = contained(root.joinpath(*name.parts))
-            mode = info.external_attr >> 16
-            kind = stat.S_IFMT(mode)
             if kind == stat.S_IFLNK:
                 link = source.read(info).decode("utf-8")
                 link_path = pathlib.PurePosixPath(link)

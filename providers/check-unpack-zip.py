@@ -19,6 +19,23 @@ class NativeZipChecks(unittest.TestCase):
                 info.external_attr = mode << 16
                 archive.writestr(info, content)
 
+    def test_native_root_directory_is_accepted_without_changing_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            archive = root / "native.zip"
+            self.make_zip(archive, [("./", b"", stat.S_IFDIR | 0o755), ("./index.js", b"exports.handler = () => 1;", stat.S_IFREG | 0o644)])
+            native_zip.unpack_zip(archive, root / "output")
+            self.assertEqual((root / "output/index.js").read_bytes(), b"exports.handler = () => 1;")
+
+    def test_root_entry_must_be_an_empty_directory(self):
+        for name, content, mode in [("./", b"file", stat.S_IFREG | 0o644), ("./", b"link", stat.S_IFLNK | 0o777), ("./", b"data", stat.S_IFDIR | 0o755), (".", b"", stat.S_IFDIR | 0o755), ("", b"", stat.S_IFDIR | 0o755)]:
+            with self.subTest(name=name, mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary)
+                archive = root / "bad.zip"
+                self.make_zip(archive, [(name, content, mode)])
+                with self.assertRaises(ValueError):
+                    native_zip.unpack_zip(archive, root / "output")
+
     def test_dependency_symlink_and_executable_survive(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
