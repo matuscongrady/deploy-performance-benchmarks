@@ -9,9 +9,7 @@
     "properties": {
       "architecture": "x86_64",
       "install": {
-        "pdfkit": "*",
-        "exceljs": "*",
-        "docx": "*"
+        "pdfkit": "*"
       }
     }
   },

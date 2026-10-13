@@ -2,7 +2,7 @@
 
 ## Packaging
 
-Time the platform’s native production build, starting immediately before its build command and ending when the deployable output is complete. Dependency installation is outside the local Lambda packaging timer. Container builds include the dependency installation performed by their native recipe; disclose it and its cache state. Save its exact lockfile and installation command. In managed builders, use the build phase timestamps from the platform’s logs; keep scheduling, checkout and deployment outside this number. If the platform does not expose a reliable build boundary, report it as unavailable.
+Time the platform’s native production build, starting immediately before its build command and ending when the deployable output is complete. Initial fixture and tool dependency installation is outside the local Lambda packaging timer. Any dependency installation or copying that the native packager performs to complete its output stays inside that timer. Container builds include the dependency installation performed by their native recipe; disclose it and its cache state. Save its exact lockfile and installation command. In managed builders, use the build phase timestamps from the platform’s logs; keep scheduling, checkout and deployment outside this number. If the platform does not expose a reliable build boundary, report it as unavailable.
 
 Run two separate series: a clean build with build artifacts removed, and a source edit after a completed build with normal build caches retained. Dependencies stay installed in both. Record the exact directories removed. Never silently blend the two series.
 

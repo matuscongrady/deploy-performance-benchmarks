@@ -79,10 +79,11 @@
       "minify": true,
       "sourcemap": false,
       "external": [
-        "pdfkit",
-        "exceljs",
-        "docx"
-      ]
+        "pdfkit"
+      ],
+      "banner": {
+        "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+      }
     }
   }
 }
