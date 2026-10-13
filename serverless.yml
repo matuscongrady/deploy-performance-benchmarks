@@ -39,19 +39,39 @@
     },
     "product-lookup": {
       "handler": "fixtures/lambdas/handlers/product-lookup.handler",
-      "name": "bench-commerce-lambda-5-bench-product-lookup"
+      "name": "bench-commerce-lambda-5-bench-product-lookup",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
     },
     "cart-pricing": {
       "handler": "fixtures/lambdas/handlers/cart-pricing.handler",
-      "name": "bench-commerce-lambda-5-bench-cart-pricing"
+      "name": "bench-commerce-lambda-5-bench-cart-pricing",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
     },
     "create-order": {
       "handler": "fixtures/lambdas/handlers/create-order.handler",
-      "name": "bench-commerce-lambda-5-bench-create-order"
+      "name": "bench-commerce-lambda-5-bench-create-order",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
     },
     "notification": {
       "handler": "fixtures/lambdas/handlers/notification.handler",
-      "name": "bench-commerce-lambda-5-bench-notification"
+      "name": "bench-commerce-lambda-5-bench-notification",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
     }
   },
   "build": {

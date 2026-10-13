@@ -21,6 +21,8 @@ Required fields:
 
 For a deployment, `readiness.verified` must be true, with observations of every selected component. For five services, three observations have the new revision and two have the baseline revision. Also retain the baseline commit and response evidence. Five-service records require `reuse.verified: true` and native before/after identity observations for inventory and webhooks, including artifact IDs, deployment ID and configuration hash. Version probes alone cannot establish that those services were reused. A managed build needs build ID, phase timestamps and complete log evidence. Git journeys need the pushed SHA and local push start, plus `pipelineCompletion` showing native terminal success for that SHA. The completion check runs after the business readiness timer. The five-service after snapshot runs only after successful native pipeline completion, so a later replacement cannot escape the unchanged-service check. A failed pipeline cannot qualify a result even if a changed function briefly answered correctly.
 
+Lambda `artifacts.bytes` is total application upload bytes. `codeBytes` (also `zipBytes`) sums compressed function ZIPs and required shared layers once. `sourceMapBytes` sums only source maps uploaded as separate files. `sizeMetric` is `total-application-upload-bytes`. Each upload file is retained under an immutable root-relative `evidenceFile` with its exact SHA-256; imports recompute sizes and hashes from those copies, not from supplied totals.
+
 A local Lambda artifact qualification looks like:
 
 ```json
@@ -38,6 +40,18 @@ A local Lambda artifact qualification looks like:
 Remove the layer entry if there is no layer. The example paths are instructions to replace, not presumed native paths. Use one function entry per selected function. Shared layers appear once. Each function includes its actual runtime `handler` and module filename. After the package timer stops, the runner unpacks every ZIP and invokes its business request in a separate Node process. The response must match the current source revision; stale but valid ZIPs fail qualification. Confirm that the native uploader uses the same artifacts; a generated bundler directory does not pass this check.
 
 For OCI output, save the registry manifest/index and sum unique config and compressed layer blob sizes for one runnable platform image. Attestations, other architectures and manifest envelope bytes are excluded. `docker images` reports a different size; neither that value nor a `docker save` tar is an OCI compressed upload size. Classic Heroku slugs must be labelled `heroku-slug`, with platform-reported compressed size.
+
+SST’s usual production path also needs one auxiliary binding per selected function:
+
+```json
+{"name": "report", "role": "source-map", "path": ".sst/artifacts/report-src/bundle.mjs.map", "uploadedSeparately": true}
+```
+
+The collector accepts actual version 3 source-map JSON for this role. It applies ZIP validation only to functions and layers. Source-map names must match selected function names exactly once. SST results lacking any of its separate maps fail admission. Serverless and CDK disable generated maps in these recipes; a candidate map already inside a code ZIP stays in codeBytes. Dependency-library maps inside a ZIP also stay there.
+
+SST’s bridge manifest retains source-map paths, hashes and bytes directly from the native runtime’s `sourcemaps` output. Its `totalCompressedBytes` is code-only; `totalUploadBytes` adds separate maps. The upload-size chart and `medianBytes` use the latter total. Native manifest proofs and observer JSON are retained as evidence, but are not themselves application uploads and do not contribute to artifact bytes.
+
+Imports reread every retained ZIP/layer/map. They reject changed checksums, forged lengths or totals, duplicate paths, repeated shared layers, maps for unselected functions and invalid source-map JSON. When a native binding observer is used, its checksum-bound original JSON must match the current provider, attempt, source commit, timer boundaries and resolved upload descriptors.
 
 An OCI artifact qualification uses a current native build identity and either a selected local manifest or a registry reference:
 
@@ -81,3 +95,9 @@ Every passed record needs an immutable cache-control JSON proof and a matching e
 For GitHub Actions, the cache proof includes the completed native run ID and attempt, observed cache request/restore/exact-hit flags and actual runner. The record flattens observed CPU, cores, memory, architecture and Node version for capacity grouping; unavailable measurements remain unavailable. `timerHost` describes the local push timer and never substitutes for build capacity. Cache restoration alone does not prove compiler or image-layer reuse.
 
 SST container deployment records also require `rolloutAdmission`: every changed ECS service must finish its current rollout successfully, followed by another verified business/revision check of all components. These admission checks run outside the readiness timer. Git records carry the same admission from the immutable CI artifact; a missing check, failed rollout or rollback to an old response cannot qualify. This additional check is necessary for the configured SST `wait:false` path; CDK's native ECS hotswap already waits for services to stabilize.
+
+## Deployment readiness and repeat predecessors
+
+CLI `finishedAt` and `durationMs` stop at the first verified business responses, even when the native command continues waiting or cleaning up. `commandFinishedAt` and `commandDurationMs` retain that separate boundary. A passed CLI result requires `nativeCompletion.verified`, `outsideReadinessTimer: true` and matching `postCompletionReadiness` observations. Failed native completion or rollback keeps the attempt failed. Git results similarly require full `postCompletionReadiness` observations after `pipelineCompletion.verifiedAt`, with final `admittedAt` retained outside the timer.
+
+A repeat Git result requires `predecessor`: the preceding raw result's file/checksum, application/provider/stage/region/branch/source identity, verified readiness and admission timestamps, latest native run identity, and actual `idleStartedAt`/`idleIntervalMs` at the push start. Idle starts after both prior admission and native completion; it must last at least 15 minutes. Its immutable `proofFile`/`proofSHA` binds the previous complete record, observed baseline and read-only latest-deployment response to this attempt. Imports and the result CLI verify that proof and the saved prior result. A timestamp without that preceding result does not qualify.

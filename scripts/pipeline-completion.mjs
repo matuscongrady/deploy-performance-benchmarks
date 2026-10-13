@@ -8,7 +8,7 @@ export async function waitForPipeline(spec,sourceCommit,{timeoutMs=1800000,inter
     if(run.exitCode===0){let state;try{state=JSON.parse(run.stdout);}catch{throw Error('Native pipeline completion must return JSON');}
       if(state.sourceCommit!==sourceCommit)throw Error('Native pipeline completion refers to a different source commit');
       if(state.status==='failed'||state.status==='cancelled')throw Error('Native deployment pipeline '+state.status);
-      if(state.status==='succeeded'){if(!state.runId)throw Error('Native pipeline completion needs its run/deployment ID');return {verified:true,...state,attempts};}
+      if(state.status==='succeeded'){if(!state.runId)throw Error('Native pipeline completion needs its run/deployment ID');return {verified:true,...state,verifiedAt:new Date().toISOString(),attempts};}
     }
     await new Promise(resolve=>setTimeout(resolve,Math.min(intervalMs,Math.max(0,deadline-performance.now()))));
   }

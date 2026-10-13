@@ -16,7 +16,7 @@ Tool packages and their transitive dependencies are pinned under `providers/tool
 | CDK | CLI 2.1145.0, library 2.273.0 | NodejsFunction; `deploy --hotswap`; native ECS image builder |
 | Ravion | CLI 1.14.3 | Native Railpack build/deploy pipeline, current standard module defaults |
 | Render | CLI 2.28.0 | Native Node/Python runtime, Git automation or commit-specific manual deployment |
-| Heroku | Not selected yet | Choose account, generation and buildpack before qualification |
+| Heroku | CLI 11.11.0; official builds plugin 2.0.4 | Cedar Basic, official Node/Python buildpacks; native source/cache qualification required |
 
 Record the actual executable version and hash before a run. Hosted builders and runtime patch releases can change even when a local CLI is pinned; save their reported versions and build capacity. Generated Serverless configurations require the exact `frameworkVersion: 4.43.0`. The Serverless npm package starts a downloaded CLI: verify the downloaded executable reports the pinned version instead of assuming that the npm lockfile alone proves it.
 
@@ -26,9 +26,21 @@ Set `CANDIDATE_CLI` to the absolute path of the reviewed executable. Record wher
 
 For JavaScript, the recipe uses the CLI's optimized `js-bundle` packaging. Node container output is explicitly ESM because the original `.mjs` server starts through an `import.meta.url` entrypoint guard; this is source compatibility, not a shared minification policy. It does not replace the builder with a hand-written Dockerfile. Python uses the CLI's native `buildpack` source builder. The configuration pins Node's major version to 22 while keeping native production minification, map and shared-layer defaults.
 
+The report excludes only `pdfkit` from its JavaScript bundle through the native dependency setting, so PDFKit retains its font files. ExcelJS and docx stay bundled. Other Lambda tools install all three report libraries separately; disclose that difference. Candidate resource keys use camelCase, with an explicit fixture-name/resource-name mapping in the plan. The fixture handlers and evidence keep their original names.
+
 Initial setup uses `deploy --fullDeploy`. Timed updates use ordinary `deploy`, which must attempt the automatic fast path. Confirm the actual selected path in the operation evidence; a full fallback is a different result. Package measurements must include every final function ZIP and shared layer ZIP, counting a shared layer once.
 
 The candidate recipe intentionally stays blocked until the supplied artifact passes the complete-artifact and live revision probes. A path to an old binary is not evidence that it contains the reviewed fast-deployment fixes.
+
+Candidate package output uses a new invocation directory each time. Do not bind a timed run to ZIP paths from qualification. Add this observer to `artifacts` in the approved qualification file:
+
+```json
+"nativeManifest": {
+  "argv": ["node", "/absolute/path/to/repo/providers/candidate-artifacts.mjs", "--qualified", "/absolute/path/to/qualification.json"]
+}
+```
+
+The existing `artifacts.files` still declares every selected function, its original fixture name, native resource key, `handler: "index.handler"`, `module: "index.js"`, and every required layer. Prior native ZIP paths let the observer locate the output root; `--artifact-root` can set that project-relative directory explicitly. After the timed command finishes, the runner supplies the current provider, run ID, source commit and exact command interval through `BENCH_PROVIDER`, `BENCH_RUN_ID`, `BENCH_SOURCE_COMMIT`, `BENCH_STARTED_AT` and `BENCH_COMMAND_FINISHED_AT`. The observer reads the generated config and source bindings, requires exactly one invocation whose complete archive set was written during that interval, and reports actual paths, sizes and hashes. Missing layers, stale ZIPs and conflicting invocations fail the run. The runner retains this raw binding proof separately from the uploaded files; its bytes are excluded from upload size. The complete-ZIP business checks still run on those current archives and verify their source revisions.
 
 ## Lambda competitors
 
@@ -36,11 +48,13 @@ Functions are invoked directly. An API Gateway is unnecessary for these tests. A
 
 Serverless Framework uses its built-in esbuild builder. Production minification is enabled and source maps are disabled. The report's PDF/Excel/Word libraries are installed with their runtime assets rather than bundling code that cannot find its fonts or other files. Generated package rules exclude protocol plans, qualification state, native output bindings and logs. Every changed function receives its own `deploy function` command. The wrapper runs at most eight native commands concurrently and waits for all of them; set and record `BENCH_FUNCTION_CONCURRENCY` to change the limit. The total update includes the complete command group. Each command gets its own source/config working directory so concurrent packaging cannot overwrite another function's files. Dependencies are shared through links; the measured wrapper includes this small working-directory preparation.
 
+The other functions use native per-function package patterns to omit `node_modules`, because their imported dependencies are already bundled and none needs the report's external document libraries. The report keeps those installed libraries. This avoids shipping the report dependencies in every unrelated function without changing Serverless's builder or editing its ZIPs afterward. Native global dependency installation remains part of its packaging time.
+
 CDK uses `NodejsFunction` with production minification, maps disabled and the report libraries installed with their assets. Its timeout and memory match the other recipes. The untimed install step links the pinned esbuild tool into the generated application's dependency tree. The packaging adapter synthesizes the native app, then calls `FileAssetHandler.packageFile` from pinned `@aws-cdk/cdk-assets-lib` 1.5.1 to create the publisher's final ZIPs without uploading. Archives run with the pinned CLI's eight-way asset-publish concurrency, since file zipping occurs in that phase. It finds code assets through the template's S3 keys, captures functions and layers once, and excludes the infrastructure template. Any AWS access through this bridge throws. This is a bridge to a private native API, so compare its final ZIPs with a real deployment before qualifying the row; `cdk synth` alone is not the measured boundary.
 
 CDK's `--hotswap` path is included because this comparison requests fast updates. CDK documents it as a development feature that introduces CloudFormation drift. Record that guarantee alongside the speed result.
 
-SST uses cloud `deploy`, never Live mode. Its production function builder keeps its own defaults and installs the report libraries with runtime assets. Its packaging bridge calls the unmodified Node runtime from the checksum-pinned 4.17.2 release, then executes that release's exact Function archive code as soon as each build completes with its pinned archiver and glob dependencies. This includes runtime dependency installation, encrypted resource metadata and final ZIP creation; it excludes source maps that native production packaging uploads separately. SST has no official standalone packaging command, so this bridge must pass native deployment parity before its timing can appear in a comparison.
+SST uses cloud `deploy`, never Live mode. Its production function builder keeps its own defaults and installs the report libraries with runtime assets. Its packaging bridge calls the unmodified Node runtime from the checksum-pinned 4.17.2 release, then executes that release's exact Function archive code as soon as each build completes with its pinned archiver and glob dependencies. This includes runtime dependency installation, encrypted resource metadata and final ZIP creation; its code ZIPs exclude source maps that native production packaging uploads separately. The bridge retains those native source-map files as auxiliary uploads, so the Upload size total includes their raw bytes alongside compressed ZIP/layer bytes. SST has no official standalone packaging command, so this bridge must pass native deployment parity before its timing can appear in a comparison.
 
 ### Repeat the local complete-ZIP checks
 
@@ -48,9 +62,11 @@ Prepare the selected Lambda scenario with the repository harness. Run the genera
 
 SST native packages contain `resource.enc`. Set `SST_PACKAGE_ENCRYPTION_KEY` to the selected app's encryption key through the environment when checking exact deployment parity. Never save that value in the repository or command plan. A public test key can be generated for local business checks with `Buffer.alloc(32).toString('base64')`; that check cannot establish byte equality with a deployed app using a different key.
 
-Both bridges write `package-artifacts/manifest.json` with every final ZIP, its bytes and SHA-256. In the generated project, run `node /absolute/path/to/repo/providers/probe-packages.mjs`. This unpacks the actual ZIPs and invokes every selected handler with its business input. The probe reads each current source revision and rejects a valid ZIP from an older source revision. It checks the PDF, Excel and Word output from the report function as well as the smaller handlers. These checks do not make AWS requests. For other providers, give `providers/check-lambda-zips.mjs` an artifact-binding JSON file, the fixture manifest, the workload ID and the generated project directory. Each function binding must include its original name, ZIP path, actual handler and module filename; shared layer bindings have `role: "layer"`. The helper extracts standard Node layers and runs every handler in an isolated process. Set `BENCH_NODE` to the chosen Node executable when qualifying runtime compatibility. If the host runs another Node major, set it to the absolute path of `providers/node22-runtime.mjs`; that wrapper invokes each handler in the digest-pinned Node 22 image with networking disabled and only its temporary extraction directory mounted. Pull that image before timing.
+Both bridges write `package-artifacts/manifest.json` with every final ZIP, its bytes and SHA-256. SST also records each raw separately uploaded source map from the native runtime output, with its owning function, bytes and hash; `totalUploadBytes` includes both code and separate maps. Code ZIP business probes ignore these auxiliary bindings and continue to execute the same complete ZIPs. In the generated project, run `node /absolute/path/to/repo/providers/probe-packages.mjs`. This unpacks the actual ZIPs and invokes every selected handler with its business input. The probe reads each current source revision and rejects a valid ZIP from an older source revision. It checks the PDF, Excel and Word output from the report function as well as the smaller handlers. These checks do not make AWS requests. For other providers, give `providers/check-lambda-zips.mjs` an artifact-binding JSON file, the fixture manifest, the workload ID and the generated project directory. Each function binding must include its original name, ZIP path, actual handler and module filename; shared layer bindings have `role: "layer"`. The helper extracts standard Node layers and runs every handler in an isolated process. Set `BENCH_NODE` to the chosen Node executable when qualifying runtime compatibility. If the host runs another Node major, set it to the absolute path of `providers/node22-runtime.mjs`; that wrapper invokes each handler in the digest-pinned Node 22 image with networking disabled and only its temporary extraction directory mounted. Pull that image before timing.
 
 Native packaging may install dependencies in newly created artifact directories. Retain their generated lockfiles in ignored evidence: the native dependency installation and archive behavior must be reproduced, rather than replaced with a faster custom implementation. The bridge commands currently include artifact manifest capture in their measured interval; disclose that small overhead alongside the method.
+
+ZIP probes preserve safe internal POSIX symlinks and executable file modes. This matters for native dependency stores whose package entries are links. The isolated Node runtime also exposes the extracted layer directory at `/opt`, as Lambda does; it keeps networking disabled and the package files read-only.
 
 ## Native container builders on SST and CDK
 
@@ -90,7 +106,69 @@ Do not use pipeline queue time as packaging time. Extract the actual build step 
 
 ## Heroku
 
-Account setup and generation are a separate decision. Fir's default Cloud Native Buildpacks produce OCI images; classic Cedar buildpacks produce slugs. The repository therefore leaves Heroku blocked rather than inventing an account or comparing a slug's bytes with an OCI image's bytes. After choosing the generation, pin the buildpack/release evidence and add a native Git/manual build recipe and the same live probes.
+Use Cedar Common Runtime Basic with the official Node/Python buildpacks for the low-cost comparison. Basic is always on and is billed for its actual lifetime. Keep the actual builder version, stack, runtime version and compressed slug identity/size. Slug sizes have a separate format from OCI image bytes. Fir requires a Private Space; switching to it is a separately priced change, not an automatic prerequisite for including Heroku.
+
+The recipe uses `heroku-24`, which remains the Cedar default. Heroku-26 is available but is not the default. This was confirmed against the native stack API and [Heroku's stack documentation](https://devcenter.heroku.com/articles/stack) on October 13, 2026. Changing stacks would require a separately disclosed qualification before a measured series.
+
+The account needs billing verification and CLI authentication. The native measurement recipe remains blocked until source-root, cache, exact-build attribution and runtime probes have been qualified. Heroku is included in the planned matrix; account access alone does not qualify its measurements.
+
+Install the pinned tools outside timing and sign in interactively:
+
+```sh
+npm install --prefix ~/.local/share/benchmark-tools/heroku-11.11.0 heroku@11.11.0
+ln -s ~/.local/share/benchmark-tools/heroku-11.11.0/node_modules/.bin/heroku ~/.local/bin/heroku
+heroku plugins:install @heroku-cli/heroku-builds@2.0.4
+heroku login
+```
+
+Preserve an existing executable rather than replacing it with this example link. Do not record the CLI's credentials or source archive download URLs in public evidence.
+
+Heroku's native app source belongs at the build root. Stage the selected fixture into an app-only source branch or use a plain Git subtree projection; do not replace the official buildpack with a third-party monorepo buildpack. Keep the original scenario commit, derived commit and verified application-file tree mapping as immutable evidence. Document native additions such as `Procfile` and runtime selectors. For Python, qualify the pinned patch first: Heroku supports only the latest patch for each major version. If its supported `3.11` selector is needed, disclose that native configuration and the exact resolved runtime.
+
+The adapter creates one local app-only Git repository per service. It reads files from the exact committed source, preserves dependency locks, and records every original/native path and hash. It keeps the fixture's existing Procfile and selects Node 22.22.0 or Python 3.11.14 by default. Set `HEROKU_NODE_VERSION=22.x` or `HEROKU_PYTHON_VERSION=3.11` only when that native selector has been qualified; record the resolved patch. An unchanged app tree retains its previous exact native commit. The source projection and map verification run outside timing.
+
+Prepare a Node baseline from the repository root:
+
+```sh
+node scripts/bench.mjs prepare deploy-node-cli heroku \
+  --app-id commerce-heroku-node --run-id review-heroku-node
+heroku_project=.work/commerce-heroku-node/heroku
+node providers/heroku-source.mjs project --repo . --fixture node \
+  --output "$heroku_project" --plan "$heroku_project/heroku-plan.json"
+```
+
+The projection prints its immutable mapping filename and checksum. Retain that map with the original source commit. The generated `heroku-update-commands.json` contains only native Git pushes for changed app trees. Inspect it before executing anything.
+
+Native Git commands explicitly unset `GIT_CURL_VERBOSE` and disable tracing. Setting `GIT_CURL_VERBOSE=0` still enables verbose output in Git, so it is not used. Retained convenience-helper logs remove private URL details and authentication/cookie headers.
+
+After the campaign has been approved, create the recorded owned apps, push the baseline and activate Basic outside timing:
+
+```sh
+node providers/heroku.mjs setup --plan "$heroku_project/heroku-plan.json" --execute
+node providers/heroku.mjs push --plan "$heroku_project/heroku-plan.json" \
+  --mapping "$heroku_project/source-map-latest.json" --destination heroku --execute
+node providers/heroku.mjs activate --plan "$heroku_project/heroku-plan.json" --execute
+```
+
+Setup persists ownership and exact app IDs before proceeding to another app. It uses no add-ons or Private Space. Basic activation follows the first successful release, then every baseline business probe must pass. After each source edit, run the projection again before timing. The generated plan's update command runs the changed native Git pushes concurrently. The setup/push convenience helper performs extra ownership checks; use the generated native command group for the timed CLI comparison.
+
+The CLI journey uses the native direct Heroku Git deployment. The GitHub journey pushes to a connected app-only GitHub branch and uses Heroku's automatic deployment. They have different push destinations and pipeline boundaries; keep those visible in the results. Five services need five independently bound apps and source inputs. The three changed inputs deploy concurrently; preserve the two unchanged source/artifact/release identities. A projection must not manufacture new commits for unchanged application trees, since that could trigger unnecessary native builds. Record and verify every native commit against the scenario's selected source before translating it into the shared result identity.
+
+For native GitHub automation, bind `HEROKU_GITHUB_REMOTE_API` and `HEROKU_GITHUB_BRANCH_API` before preparing the plan; use the corresponding service suffixes for five apps. Branch values include `refs/heads/`. In Heroku, connect each app to its selected app-only repository/branch and enable automatic deployment. Generate GitHub commands with the source projector's `--destination github`; do not run the direct Heroku Git commands as a GitHub test.
+
+`providers/heroku.mjs completion --plan PLAN --mapping IMMUTABLE_MAP --after PUSH_STARTED_AT` finds the exact native commits after the actual push start, then checks each Build, Release and Slug. It translates native commit identity into the original scenario commit only after verifying the saved file map. A missing build stays pending; multiple matching builds or a wrong slug commit fail. For five services, bind `providers/heroku.mjs snapshot --plan PLAN --service NAME` for each component. Those read-only snapshots include current release, slug and configuration identities, without printing config variable values.
+
+For the repeat-run predecessor check, `providers/heroku.mjs current --plan PLAN --mapping PREDECESSOR_MAP` verifies that each app's newest build and current release still match that admitted source. A newer failed or pending build cannot be hidden by an older successful release. Preserve that observation and wait the required 15 minutes after admission before the next push.
+
+For a fresh build, use the official plugin's `heroku builds:cache:purge --app OWNED_APP` outside the Git-push timer and save its native response, then verify cache observations during the measured build. Repeat builds retain normal native caches. Use native build-phase evidence for packaging; the total Git push/build/release duration is a deployment measurement. Inspect the compressed slug through the native Build/Slug API and downloaded proof outside packaging time; do not substitute an extracted directory's size.
+
+The executable wrappers are `providers/heroku.mjs purge --plan PLAN --output EVIDENCE_DIR --execute` and `providers/heroku.mjs capture --plan PLAN --mapping IMMUTABLE_MAP --service api --build BUILD_ID --output EVIDENCE_DIR --download-slug`. Purge uses the official builds plugin with explicit app confirmation. Capture verifies the native source and slug, retains sanitized build logs, and checks downloaded compressed slug bytes against the API's size/checksum. It omits private source/download URLs and user identity fields. Build API lifecycle timestamps and absent cache messages are insufficient: capture leaves packaging-phase timing and cache restoration unqualified until actual native events have been checked. These are technical qualification requirements, not another account signup step.
+
+After the paired batch, destroy only the recorded owned apps using `heroku apps:destroy --app OWNED_APP --confirm OWNED_APP`. Verify those exact app IDs are absent and that no campaign-owned dynos/add-ons remain. No Eco subscription, Private Space, database or paid add-on is required by these fixtures.
+
+The plan's cleanup wrapper deletes those exact ledger IDs through the native API and verifies absence; rerunning it also checks apps already recorded as deleted. It can clean up a partially created batch. If an interrupted creation never returned an app ID, the reserved name remains in the ledger for explicit ownership recovery; cleanup cannot claim success while that entry is unresolved. Keep this state until recovery is complete.
+
+Sources: [pricing](https://www.heroku.com/pricing/), [billing](https://devcenter.heroku.com/articles/usage-and-billing), [Git deployment](https://devcenter.heroku.com/articles/git), [GitHub deployment](https://devcenter.heroku.com/articles/github-integration), [official cache purge](https://devcenter.heroku.com/articles/slug-compiler), [Python runtime policy](https://devcenter.heroku.com/articles/python-support), [slug API](https://devcenter.heroku.com/articles/platform-api-reference#slug).
 
 ## Before a campaign
 

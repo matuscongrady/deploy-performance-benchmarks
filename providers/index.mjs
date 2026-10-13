@@ -1,7 +1,8 @@
 import { cp, mkdir, readFile, writeFile, symlink, lstat, readdir, copyFile, rm } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
+import {createHash} from 'node:crypto';
 
-export const versions = Object.freeze({ serverless: '4.43.0', sst: '4.17.2', cdk: '2.1145.0', cdkLibrary: '2.273.0', constructs: '10.8.1', esbuild: '0.28.2', ravion: '1.14.3', render: '2.28.0' });
+export const versions = Object.freeze({ serverless: '4.43.0', sst: '4.17.2', cdk: '2.1145.0', cdkLibrary: '2.273.0', constructs: '10.8.1', esbuild: '0.28.2', ravion: '1.14.3', render: '2.28.0',heroku:'11.11.0',herokuBuilds:'2.0.4' });
 const json = (v) => JSON.stringify(v, null, 2) + '\n';
 const exists = async (p) => lstat(p).then(() => true, () => false);
 const write = async (dir, name, value) => { await mkdir(dirname(join(dir, name)), { recursive: true }); await writeFile(join(dir, name), typeof value === 'string' ? value : json(value)); };
@@ -53,22 +54,24 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
     result.commands.install.push(['node',join(repoRoot,'providers/link-tools.mjs'),outputDir,join(repoRoot,'providers/tools',provider),provider]);
   }
   if (provider === 'candidate') {
-    const resources = Object.fromEntries(isLambda ? functions.map((f) => [f.name, { type:'function', properties:{ runtime:'nodejs22.x', memory:512, timeout:30, packaging:{ type:'js-bundle', properties:{ entryfilePath:`app/${relative(join(repoRoot,manifest.lambda.context),join(repoRoot,f.entry))}`, nodeVersion:22 } } } }]) : services.map((s) => [s.name, { type:'web-service', properties:{ resources:{cpu:0.25,memory:512}, packaging:scenario.fixture === 'python' ? {type:'buildpack',properties:{sourceDirectoryPath:`app/${s.name}`}} : {type:'js-bundle',properties:{entryfilePath:`app/${s.name}/server.mjs`,nodeVersion:22,outputModuleFormat:'esm'}}, environment:[{name:'PORT',value:'3000'}] } }]));
+    const resourceName=(fixtureName)=>fixtureName.replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase());
+    if(isLambda)result.readiness.functions=functions.map(f=>({name:f.name,resourceName:resourceName(f.name)}));
+    const resources = Object.fromEntries(isLambda ? functions.map((f) => [resourceName(f.name), { type:'function', properties:{ runtime:'nodejs22.x', memory:512, timeout:30, packaging:{ type:'js-bundle', properties:{ entryfilePath:`app/${relative(join(repoRoot,manifest.lambda.context),join(repoRoot,f.entry))}`, nodeVersion:22,...f.name==='report'&&{dependenciesToExcludeFromBundle:['pdfkit']} } } } }]) : services.map((s) => [s.name, { type:'web-service', properties:{ resources:{cpu:0.25,memory:512}, packaging:scenario.fixture === 'python' ? {type:'buildpack',properties:{sourceDirectoryPath:`app/${s.name}`}} : {type:'js-bundle',properties:{entryfilePath:`app/${s.name}/server.mjs`,nodeVersion:22,outputModuleFormat:'esm'}}, environment:[{name:'PORT',value:'3000'}] } }]));
     await write(outputDir,'candidate.yml',json({ projectName:name, resources }));
     const executable = process.env.CANDIDATE_CLI || '<CANDIDATE_CLI>';
     const common = ['--configPath','candidate.yml','--stage',stage,'--region',region,'--autoConfirmOperation'];
     result.commands.setup = [[executable,'deploy',...common,'--fullDeploy']];
-    result.commands.package = [[executable,'package',...common,'--preserveTempFiles']];
+    result.commands.package = [[executable,'package','--configPath','candidate.yml','--stage',stage,'--region',region]];
     result.commands.update = [[executable,'deploy',...common]];
     result.commands.cleanup = [[executable,'delete',...common]];
-    result.notes.push('Node uses the native optimized JavaScript builder with ESM output to preserve the source entrypoint guard; Python uses the native source buildpack. Native map, minification and shared-layer defaults are retained. Updates must use automatic fast deployment; setup alone forces a full deployment.');
+    result.notes.push('Lambda functions use the native JavaScript builder and shared-layer defaults. The report keeps PDFKit external so its font assets remain available. Node containers use ESM output to preserve the source entrypoint guard; Python uses the native source buildpack. Native map and minification defaults are retained. Updates use automatic fast deployment; setup alone forces a full deployment.');
     result.reason = process.env.CANDIDATE_CLI ? 'The supplied candidate artifact and generated resources must pass native artifact and fast-path readiness qualification.' : 'Supply a pinned candidate executable in CANDIDATE_CLI, then qualify its artifacts and fast deployment.';
   } else if (provider === 'serverless' && isLambda) {
     await write(outputDir,'package-lock.json',JSON.parse(await readFile(join(outputDir,'app/package-lock.json'),'utf8')));
     await mkdir(join(outputDir,'node_modules'),{recursive:true});
     const fixtureDependencies=JSON.parse(await readFile(join(outputDir,'app/package.json'),'utf8')).dependencies;
     for (const dep of Object.keys(fixtureDependencies)) {const target=join(outputDir,'node_modules',dep);await mkdir(dirname(target),{recursive:true});if (!(await exists(target))) await symlink(join(outputDir,'app/node_modules',dep),target,'dir');}
-    const entries = Object.fromEntries(functions.map((f) => [f.name,{handler:`app/handlers/${f.name}.handler`,name:`${name}-${stage}-${f.name}`} ]));
+    const entries = Object.fromEntries(functions.map((f) => [f.name,{handler:`app/handlers/${f.name}.handler`,name:`${name}-${stage}-${f.name}`,...f.name!=='report'&&{package:{patterns:['!node_modules/**']}}} ]));
     await write(outputDir,'package.json',JSON.parse(await readFile(join(outputDir,'app/package.json'),'utf8')));
     const config = { frameworkVersion:versions.serverless, service:name, provider:{name:'aws',runtime:'nodejs22.x',region,stage,memorySize:512,timeout:30}, package:{individually:true,patterns:['!app/check.mjs','!app/workloads.json','!app/package-lock.json','!provider-plan.json','!manifest.json','!plan.json','!qualification.json','!qualifications.json','!native-outputs.json','!**/*.log','!**/evidence/**']}, functions:entries, build:{esbuild:{minify:true,sourcemap:false,external:['pdfkit','exceljs','docx']}} };
     await write(outputDir,'serverless.yml',json(config));
@@ -127,8 +130,22 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
     result.notes.push('Fresh standard modules use the provider default Sandbox capacity; older saved EC2 capacity must not silently stand in for that default. Preserve five independent source paths. Do not fabricate module inputs or classify an unobserved queue-inclusive run as build time.');
     result.artifacts.format='oci-image';
   } else if (provider === 'heroku' && !isLambda) {
-    result.availability='account-required'; result.reason='Choose the Heroku account, app generation, plan and buildpack before generating the native deployment recipe.';
-    result.notes.push('Fir uses Cloud Native Buildpacks and OCI output; classic Cedar buildpacks produce slugs. Do not mix those sizes in one OCI ranking. Heroku setup remains a separate owner decision.');
+    const native={schemaVersion:1,appId:String(runId),repoRoot,outputDir,fixture:scenario.fixture,generation:'cedar',stack:'heroku-24',dyno:'basic',region:process.env.HEROKU_BENCH_REGION||'eu',runtimeSelectors:{node:process.env.HEROKU_NODE_VERSION||'22.22.0',python:process.env.HEROKU_PYTHON_VERSION||'3.11.14'},services:services.map(s=>({name:s.name,sourceRoot:s.buildContext,appName:process.env[`HEROKU_APP_${s.name.toUpperCase()}`]||`bench-${createHash('sha256').update(name+'-'+stage+'-'+s.name).digest('hex').slice(0,12)}-${s.name.slice(0,10)}`,buildpack:scenario.fixture==='python'?'heroku/python':'heroku/nodejs',githubRemote:process.env[`HEROKU_GITHUB_REMOTE_${s.name.toUpperCase()}`],githubBranch:process.env[`HEROKU_GITHUB_BRANCH_${s.name.toUpperCase()}`]}))};
+    await write(outputDir,'heroku-plan.json',native);
+    const adapter=join(repoRoot,'providers/heroku.mjs'),common=['--plan','heroku-plan.json'];
+    result.commands.discovery=[['heroku','--version'],['heroku','plugins']];
+    result.commands.prepareSource=[['node',join(repoRoot,'providers/heroku-source.mjs'),'project','--repo',repoRoot,'--fixture',scenario.fixture,'--output',outputDir,'--plan',join(outputDir,'heroku-plan.json'),'--node-version',native.runtimeSelectors.node,'--python-version',native.runtimeSelectors.python]];
+    result.commands.setup=[['node',adapter,'setup',...common,'--execute']];
+    result.commands.activate=[['node',adapter,'activate',...common,'--execute']];
+    result.commands.update=[['node',join(repoRoot,'providers/parallel-commands.mjs'),'heroku-update-commands.json']];
+    result.env={GIT_TERMINAL_PROMPT:'0',GIT_TRACE:'0',GIT_TRACE_CURL:'0',GIT_TRACE_REDACT:'1'};
+    result.commands.cleanup=[['node',adapter,'cleanup',...common,'--execute']];
+    result.readiness.services=native.services.map(s=>({name:s.name,appName:s.appName}));
+    result.artifacts.format='heroku-slug';
+    const githubBound=native.services.every(s=>s.githubRemote&&s.githubBranch);
+    result.availability=scenario.journey?.startsWith('git-')&&!githubBound?'account-required':'qualification-required';
+    result.reason=scenario.kind==='package'?'Native build logs and compressed slug capture are executable; qualify exact packaging-phase events and cache observations before importing a managed package result. Total Git push time is not packaging time.':scenario.journey?.startsWith('git-')&&!githubBound?'Bind app-only GitHub repositories/branches and verify native Heroku automatic deployments; CLI authentication alone does not provide that integration.':'Project the exact selected source, create recorded owned Cedar apps, push the baseline, activate Basic, and qualify native build/release/slug plus business probes.';
+    result.notes.push('Cedar Common Runtime Basic with official buildpacks. The CLI update pushes app-only Git inputs directly to Heroku; GitHub automation is a separate destination. Three changed service inputs are pushed concurrently; unchanged trees reuse their exact native commits. Compressed slug bytes remain separate from OCI image bytes. Native preparation, source projection, baseline activation and cache purge are outside timing.');
   } else {
     result.availability='unsupported';result.reason=`${provider} has no selected native ${isLambda ? 'Lambda' : 'container'} recipe in this comparison.`;
   }
@@ -137,6 +154,7 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
   if (provider === 'candidate') result.qualificationRequirements.push('reviewed-binary-sha256','automatic-fast-path');
   if (!isLambda && ['sst','cdk'].includes(provider)) result.qualificationRequirements.push('native-container-build-invocation','compressed-oci-image-bytes');
   if (['render','ravion'].includes(provider)) result.qualificationRequirements.push('hosted-build-phase-observed','platform-version-and-capacity-recorded');
+  if(provider==='heroku')result.qualificationRequirements.push('immutable-app-only-source-mapping','exact-native-build-release-slug','official-buildpack-runtime','native-cache-and-build-phase','compressed-slug-bytes');
   await write(outputDir,'provider-plan.json',result);
   return result;
 }
@@ -205,7 +223,7 @@ export async function reviewFiles({provider,fixture,repoRoot,runId}) {
   commands.push(`Fast update: ../../providers/tools/${provider}/node_modules/.bin/${provider} deploy ${provider==='sst'?'--stage bench':'--hotswap --require-approval never --outputs-file native-outputs.json'}`);
   commands.push(`Cleanup: ../../providers/tools/${provider}/node_modules/.bin/${provider} ${provider==='sst'?'remove --stage bench':'destroy --force'}`);
  }
- if(provider==='candidate')commands=[`cd ${folder}`,'Use the reviewed CANDIDATE_CLI executable.','package --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation --preserveTempFiles','Initial setup: deploy --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation --fullDeploy','Fast update: deploy --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation','Cleanup: delete --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation'];
+ if(provider==='candidate')commands=[`cd ${folder}`,'Use the reviewed CANDIDATE_CLI executable.','package --configPath candidate.yml --stage bench --region eu-west-1','Initial setup: deploy --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation --fullDeploy','Fast update: deploy --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation','Cleanup: delete --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation'];
  if(provider==='serverless'&&lambda){
   const config=JSON.parse(await readFile(join(generated,'serverless.yml'),'utf8'));
   for(const f of Object.values(config.functions))f.handler=f.handler.replace('app/handlers/','fixtures/lambdas/handlers/');
@@ -218,7 +236,7 @@ export async function reviewFiles({provider,fixture,repoRoot,runId}) {
  }
  if(provider==='render')commands=['Select deployment/render/render.yaml when creating the neutral native blueprint.','Select the source directory shown by rootDir; do not build the benchmark harness as part of the app.','Record service IDs, the actual builder capacity and URLs before qualification.','Manual deploy: render deploys create SERVICE_ID --commit FULL_COMMIT --wait --confirm --output json','Run all changed service commands concurrently; then check every service with the common business/revision probes.','Cleanup: delete each recorded benchmark service in the Render dashboard, then verify every recorded service is absent.'];
  if(provider==='ravion')commands=['Discover the current native schema: ravion project config schema','List current modules: ravion module definition list','Inspect the web module: ravion module schema rvn-ecs-web','Export the owned Railpack project and exact-commit pipeline into ignored campaign state.','Set RAVION_PIPELINE_ID, RAVION_VARIANT_ID and BENCH_COMMIT after validating the pipeline input.','Native run: node providers/hosted.mjs ravion PIPELINE_ID VARIANT_ID FULL_COMMIT NEUTRAL_DESCRIPTION','Cleanup: use the recorded owned project/module destruction procedure from the exported schema, verify its AWS resources are gone, then remove the temporary account connection. No unverified generic deletion command is supplied.'];
- if(provider==='heroku')commands=['The account, app generation and buildpack are still an owner decision. This branch does not claim a ready Heroku measurement.'];
+ if(provider==='heroku')commands=['Use the pinned Heroku CLI and official builds plugin from provider setup.','Prepare the native command plan from the selected branch before provisioning.','Project source outside timing: run commands.prepareSource from the generated plan. It creates only app-owned Git trees, native Procfile/runtime selectors and an immutable original/native SHA mapping.','Create the recorded owned Cedar apps with commands.setup outside timing. Push the baseline, then use commands.activate to run one Basic web dyno per app. Verify every baseline business probe.','CLI update: execute the generated heroku-update-commands.json concurrently through providers/parallel-commands.mjs. Those commands are native direct Heroku Git pushes.','GitHub update: bind one app-only branch per app and configure native automatic deployments in Heroku; use the projected immutable commits, not the benchmark harness as the source root.','Observe exact native builds/releases/slugs with providers/heroku.mjs completion and capture; require the original source mapping and actual push start.','Purge native cache with providers/heroku.mjs purge outside timing; qualify restoration and packaging phase events against real native logs.','Cleanup: execute commands.cleanup, which deletes only recorded owned app IDs and verifies their absence.'];
  files[`${folder}/README.md`]=`# ${provider} recipe\n\nThis file shows the native commands and configuration for ${fixture}. The comparison runner still supplies a reviewed app identity, cache policy and runtime probes. The example resource names are stable across this workload's CLI and Git branches. Setup, dependency installation and cleanup are outside the timed update. Do not run a deployment before the campaign is approved.\n\n${commands.map(c=>`- ${c}`).join('\n')}\n\n${lambda?'The complete ZIP bridges and post-build probe are explained':'Native builder and artifact-size qualification are explained'} in [provider setup](../../docs/provider-setup.md). A successful command is not a qualified result.\n`;
  files[`${folder}/.gitignore`]='node_modules/\n.sst/\ncdk.out/\n.serverless/\npackage-artifacts/\nnative-outputs.json\n';
  return files;

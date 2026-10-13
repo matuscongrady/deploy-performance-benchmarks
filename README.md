@@ -42,7 +42,7 @@ Use a separate trial branch for each provider. Connect each managed platform onl
 
 ## What the clock measures
 
-Start immediately before the native package/build command. Stop when every deployable artifact is complete, before upload or deployment. Record compressed artifact size separately.
+Start immediately before the native package/build command. Stop when every deployable artifact is complete, before upload or deployment. Record total application Upload size separately: compressed ZIPs/layers plus raw source maps uploaded as separate files.
 
 Run one clean-cache series and one cached source-edit series. Keep the cache controls and raw logs.
 

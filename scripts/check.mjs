@@ -18,6 +18,7 @@ if(m.lambda)assert.equal(new Set(m.lambda.functions.map(f=>f.name)).size,m.lambd
 for(const s of await scenarios()) { const files=await targets(s);assert.equal(files.length,s.functions|| (s.fixture==='five-services'?3:1));for(const f of files)assert.ok((await readFile(path.join(root,f),'utf8')).toLowerCase().includes('revision'));}
 assert.throws(()=>validateRecord({schemaVersion:1,kind:'deploy',status:'passed'}));
 const attempted={schemaVersion:1,kind:'deploy',status:'passed',scenario:'deploy-five-services-cli',provider:'candidate',runId:'fake-run',sourceCommit:'a'.repeat(40),startedAt:'2026-10-10T12:00:00.000Z',finishedAt:'2026-10-10T12:00:01.000Z',durationMs:1000,toolVersion:'test',environment:{},appId:'fake-app',cacheEvidence:{runId:'fake-run',sourceCommit:'a'.repeat(40),scenario:'deploy-five-services-cli',provider:'candidate',appId:'fake-app',series:'clean',proofFile:'fake',proofSHA:'b'.repeat(64)},evidence:[{file:'fake',sha256:'b'.repeat(64)}],readiness:{verified:true,observations:[]}};
+attempted.nativeCompletion={verified:true,outsideReadinessTimer:true,finishedAt:attempted.finishedAt,postCompletionReadiness:attempted.readiness};
 assert.throws(()=>validateRecord(attempted),/unchanged native component|observations/);
 if((await scenarios()).some(s=>s.id==='package-lambda-25'))await assert.rejects(checkQualification({scenario:'package-lambda-25',provider:'cdk',approved:true,toolVersion:{reported:'test'},environment:{region:'eu-west-1'},cacheEvidence:{series:'clean'},qualificationEvidence:[{}],artifacts:{qualified:true,format:'lambda-zip',functionCount:1,files:[{name:'report',path:'report.zip'}]}},await (await import('./lib.mjs')).scenarioById('package-lambda-25'),'cdk'),/every selected/);
 const old=[{name:'inventory',deploymentId:'same',configurationHash:'same',artifactIds:['digest']},{name:'webhooks',deploymentId:'same',configurationHash:'same',artifactIds:['digest']}];assert.equal(compareUnchanged(old,old).verified,true);assert.throws(()=>compareUnchanged(old,old.map(s=>({...s,deploymentId:'replaced'}))),/replaced/);
@@ -63,6 +64,7 @@ try {
   await assert.rejects(readCacheEvidence(proofFile,identity,{base:temp,beforeTimer:true}),/reappeared/);
   const artifact=path.join(project,'cache/app.zip');await writeFile(artifact,'prior artifact');
   const previous={schemaVersion:1,kind:'deploy',status:'passed',...identity,startedAt:'2026-10-10T12:00:00.000Z',finishedAt:'2026-10-10T12:00:01.000Z',durationMs:1000,toolVersion:'test',environment:{},cacheEvidence:checked,evidence:[{file:checked.proofFile,sha256:checked.proofSHA}],readiness:{verified:true,observations:[{name:'api',expected:{revision:'old'},observed:{revision:'old'}}]},artifacts:{files:[{path:'cache/app.zip',sha256:await sha256(artifact)}]}};
+  previous.nativeCompletion={verified:true,outsideReadinessTimer:true,finishedAt:previous.finishedAt,postCompletionReadiness:previous.readiness};
   const previousFile=path.join(temp,'previous.json');await saveResult(previousFile,previous);
   const retained={schemaVersion:1,mode:'local',...identity,runId:'edited-001',sourceCommit:'b'.repeat(40),series:'cached-source-edit',paths:await observeCachePaths(project,['cache']),retainedFrom:{file:'previous.json',sha256:await sha256(previousFile)}};
   await verifyRetainedCache(retained,project,{base:temp});
@@ -103,6 +105,7 @@ try {
   const fiveNames=['api','reporting','inventory','webhooks','notifications'];
   const fiveReadiness={verified:true,observations:fiveNames.map(name=>({name,expected:{revision:name},observed:{revision:name}}))};
   const fiveSst={...sstRecord,scenario:'deploy-five-services-cli',cacheEvidence:{...sstRecord.cacheEvidence,scenario:'deploy-five-services-cli'},readiness:fiveReadiness,reuse:{verified:true,observations:old.map(s=>({name:s.name,unchanged:true}))},rolloutAdmission:{...sstRecord.rolloutAdmission,observations:['api','reporting','notifications'].map(name=>({...sstRecord.rolloutAdmission.observations[0],name})),postRolloutReadiness:fiveReadiness}};
+  fiveSst.nativeCompletion={...fiveSst.nativeCompletion,postCompletionReadiness:fiveReadiness};
   validateRecord(fiveSst);
   assert.throws(()=>validateRecord({...fiveSst,rolloutAdmission:{...fiveSst.rolloutAdmission,observations:fiveSst.rolloutAdmission.observations.map(o=>({...o,name:'api'}))}}),/every changed ECS/);
   const ociArtifacts={...compressedImage(manifest,JSON.stringify(manifest)),nativeBuild:{sourceCommit:previous.sourceCommit,runId:previous.runId,provider:previous.provider,imageId:manifest.config.digest}};
@@ -118,6 +121,6 @@ try {
   await assert.rejects(collectArtifacts({qualified:true,format:'lambda-zip',functionCount:1,files:[{path:'bundle.js'}]},temp),/actual ZIP/);
   await assert.rejects(collectArtifacts({qualified:true,format:'oci-compressed',files:[{path:'bundle.js'}]},temp),/qualified complete/);
 } finally {await new Promise(resolve=>server.close(resolve));await rm(temp,{recursive:true,force:true});}
-for(const file of ['scripts/check-oci.mjs','scripts/check-sst-rollout.mjs','scripts/check-provider-native.mjs']) {const checked=spawnSync(process.execPath,[file],{cwd:root,stdio:'inherit'});if(checked.error)throw checked.error;if(checked.status!==0)process.exit(checked.status||1);}
+for(const file of ['scripts/check-oci.mjs','scripts/check-sst-rollout.mjs','scripts/check-provider-native.mjs','scripts/check-deployment-measurement.mjs','scripts/check-lambda-upload-size.mjs']) {const checked=spawnSync(process.execPath,[file],{cwd:root,stdio:'inherit'});if(checked.error)throw checked.error;if(checked.status!==0)process.exit(checked.status||1);}
 const check=spawnSync(process.execPath,['fixtures/check.mjs',...process.argv.slice(2)],{cwd:root,stdio:'inherit'});if(check.error)throw check.error;if(check.status!==0)process.exit(check.status||1);
 console.log('Scenario edits, business readiness and artifact rejection checks passed. No cloud requests.');

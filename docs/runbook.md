@@ -28,7 +28,7 @@ Read `.work/commerce-lambda-5/candidate/plan.json`. Preparation writes source/co
 
 Copy the [qualification example](qualification.example.json) into `.work/commerce-lambda-5/candidate/qualification.json`. Set scenario to `package-lambda-5`, provider to `candidate`, appId to `commerce-lambda-5` and stage to the baseline's stage. Replace its example fields with this application's observed versions, cache evidence and artifact/runtime checks. The [selected manifest](../fixtures/manifest.json) is the source of required component names, requests and business expectations.
 
-Supply every selected function ZIP and any required shared layer. See [result data](results.md) for the qualified artifact fields. Do not substitute a JavaScript bundle or a directory.
+Supply every selected function ZIP and any required shared layer. SST also supplies one separately uploaded native source map per function. Count ZIP/layer bytes and separate raw map bytes once in the Upload size total; maps already inside a ZIP are counted there. See [result data](results.md) for the qualified artifact fields. Do not substitute a JavaScript bundle or a directory.
 
 For AWS operations, bind environment.accountId to the verified disposable account. Keep tokens, resource IDs and endpoints in ignored qualification state. Set approved only after the technical checks; that flag does not authorize a campaign.
 
@@ -59,7 +59,7 @@ The update changes all 5 selected functions. The cached rebuild uses this commit
 
 ## Measure the cached rebuild
 
-Start immediately before the native package/build command. Stop when every deployable artifact is complete, before upload or deployment. Record compressed artifact size separately.
+Start immediately before the native package/build command. Stop when every deployable artifact is complete, before upload or deployment. Record total application Upload size separately: compressed ZIPs/layers plus raw source maps uploaded as separate files.
 
 Set the qualification's cacheEvidence.series to `cached-source-edit`. The retained result must be the passed clean attempt from the preceding source commit.
 

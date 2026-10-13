@@ -4,7 +4,7 @@ This file shows the native commands and configuration for lambda-5. The comparis
 
 - cd deployment/candidate
 - Use the reviewed CANDIDATE_CLI executable.
-- package --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation --preserveTempFiles
+- package --configPath candidate.yml --stage bench --region eu-west-1
 - Initial setup: deploy --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation --fullDeploy
 - Fast update: deploy --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation
 - Cleanup: delete --configPath candidate.yml --stage bench --region eu-west-1 --autoConfirmOperation

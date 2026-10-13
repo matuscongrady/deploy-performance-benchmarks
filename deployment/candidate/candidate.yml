@@ -11,12 +11,15 @@
           "type": "js-bundle",
           "properties": {
             "entryfilePath": "../../fixtures/lambdas/handlers/report.mjs",
-            "nodeVersion": 22
+            "nodeVersion": 22,
+            "dependenciesToExcludeFromBundle": [
+              "pdfkit"
+            ]
           }
         }
       }
     },
-    "product-lookup": {
+    "productLookup": {
       "type": "function",
       "properties": {
         "runtime": "nodejs22.x",
@@ -31,7 +34,7 @@
         }
       }
     },
-    "cart-pricing": {
+    "cartPricing": {
       "type": "function",
       "properties": {
         "runtime": "nodejs22.x",
@@ -46,7 +49,7 @@
         }
       }
     },
-    "create-order": {
+    "createOrder": {
       "type": "function",
       "properties": {
         "runtime": "nodejs22.x",
