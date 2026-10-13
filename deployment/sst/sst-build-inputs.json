@@ -1,0 +1,304 @@
+[
+  {
+    "dev": false,
+    "functionID": "report",
+    "handler": "../../fixtures/lambdas/handlers/report.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {
+        "pdfkit": "*"
+      }
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "product-lookup",
+    "handler": "../../fixtures/lambdas/handlers/product-lookup.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "cart-pricing",
+    "handler": "../../fixtures/lambdas/handlers/cart-pricing.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "create-order",
+    "handler": "../../fixtures/lambdas/handlers/create-order.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "notification",
+    "handler": "../../fixtures/lambdas/handlers/notification.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "product-search",
+    "handler": "../../fixtures/lambdas/handlers/product-search.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "category-list",
+    "handler": "../../fixtures/lambdas/handlers/category-list.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "inventory-check",
+    "handler": "../../fixtures/lambdas/handlers/inventory-check.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "reserve-stock",
+    "handler": "../../fixtures/lambdas/handlers/reserve-stock.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "release-stock",
+    "handler": "../../fixtures/lambdas/handlers/release-stock.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "shipping-quote",
+    "handler": "../../fixtures/lambdas/handlers/shipping-quote.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "tax-quote",
+    "handler": "../../fixtures/lambdas/handlers/tax-quote.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "apply-discount",
+    "handler": "../../fixtures/lambdas/handlers/apply-discount.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "payment-intent",
+    "handler": "../../fixtures/lambdas/handlers/payment-intent.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "payment-webhook",
+    "handler": "../../fixtures/lambdas/handlers/payment-webhook.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "order-status",
+    "handler": "../../fixtures/lambdas/handlers/order-status.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "cancel-order",
+    "handler": "../../fixtures/lambdas/handlers/cancel-order.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "return-request",
+    "handler": "../../fixtures/lambdas/handlers/return-request.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "customer-profile",
+    "handler": "../../fixtures/lambdas/handlers/customer-profile.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "customer-token",
+    "handler": "../../fixtures/lambdas/handlers/customer-token.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "invoice",
+    "handler": "../../fixtures/lambdas/handlers/invoice.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "catalog-import",
+    "handler": "../../fixtures/lambdas/handlers/catalog-import.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "catalog-feed",
+    "handler": "../../fixtures/lambdas/handlers/catalog-feed.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "daily-summary",
+    "handler": "../../fixtures/lambdas/handlers/daily-summary.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "shipment-update",
+    "handler": "../../fixtures/lambdas/handlers/shipment-update.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  }
+]

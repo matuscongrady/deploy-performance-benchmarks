@@ -1,0 +1,278 @@
+{
+  "frameworkVersion": "4.43.0",
+  "plugins": [
+    "./.benchmark-instrumentation/serverless-build-stage.cjs"
+  ],
+  "service": "bench-commerce-lambda-25",
+  "provider": {
+    "name": "aws",
+    "runtime": "nodejs22.x",
+    "region": "eu-west-1",
+    "stage": "bench",
+    "memorySize": 512,
+    "timeout": 30
+  },
+  "package": {
+    "individually": true,
+    "patterns": [
+      "!app/check.mjs",
+      "!app/workloads.json",
+      "!app/package-lock.json",
+      "!provider-plan.json",
+      "!manifest.json",
+      "!plan.json",
+      "!qualification.json",
+      "!qualifications.json",
+      "!native-outputs.json",
+      "!**/*.log",
+      "!**/evidence/**",
+      "!.parallel-functions/**",
+      "!.benchmark-instrumentation/**",
+      "!**/serverless-build-stage.cjs",
+      "!**/build-timing.mjs",
+      "!**/build-inputs.json",
+      "!**/native-build-*.json*",
+      "!deployment/**",
+      "!providers/**",
+      "!docs/**",
+      "!scripts/**",
+      "!scenarios/**",
+      "!.work/**",
+      "!results/**"
+    ]
+  },
+  "functions": {
+    "report": {
+      "handler": "fixtures/lambdas/handlers/report.handler",
+      "name": "bench-commerce-lambda-25-bench-report"
+    },
+    "product-lookup": {
+      "handler": "fixtures/lambdas/handlers/product-lookup.handler",
+      "name": "bench-commerce-lambda-25-bench-product-lookup",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "cart-pricing": {
+      "handler": "fixtures/lambdas/handlers/cart-pricing.handler",
+      "name": "bench-commerce-lambda-25-bench-cart-pricing",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "create-order": {
+      "handler": "fixtures/lambdas/handlers/create-order.handler",
+      "name": "bench-commerce-lambda-25-bench-create-order",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "notification": {
+      "handler": "fixtures/lambdas/handlers/notification.handler",
+      "name": "bench-commerce-lambda-25-bench-notification",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "product-search": {
+      "handler": "fixtures/lambdas/handlers/product-search.handler",
+      "name": "bench-commerce-lambda-25-bench-product-search",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "category-list": {
+      "handler": "fixtures/lambdas/handlers/category-list.handler",
+      "name": "bench-commerce-lambda-25-bench-category-list",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "inventory-check": {
+      "handler": "fixtures/lambdas/handlers/inventory-check.handler",
+      "name": "bench-commerce-lambda-25-bench-inventory-check",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "reserve-stock": {
+      "handler": "fixtures/lambdas/handlers/reserve-stock.handler",
+      "name": "bench-commerce-lambda-25-bench-reserve-stock",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "release-stock": {
+      "handler": "fixtures/lambdas/handlers/release-stock.handler",
+      "name": "bench-commerce-lambda-25-bench-release-stock",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "shipping-quote": {
+      "handler": "fixtures/lambdas/handlers/shipping-quote.handler",
+      "name": "bench-commerce-lambda-25-bench-shipping-quote",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "tax-quote": {
+      "handler": "fixtures/lambdas/handlers/tax-quote.handler",
+      "name": "bench-commerce-lambda-25-bench-tax-quote",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "apply-discount": {
+      "handler": "fixtures/lambdas/handlers/apply-discount.handler",
+      "name": "bench-commerce-lambda-25-bench-apply-discount",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "payment-intent": {
+      "handler": "fixtures/lambdas/handlers/payment-intent.handler",
+      "name": "bench-commerce-lambda-25-bench-payment-intent",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "payment-webhook": {
+      "handler": "fixtures/lambdas/handlers/payment-webhook.handler",
+      "name": "bench-commerce-lambda-25-bench-payment-webhook",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "order-status": {
+      "handler": "fixtures/lambdas/handlers/order-status.handler",
+      "name": "bench-commerce-lambda-25-bench-order-status",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "cancel-order": {
+      "handler": "fixtures/lambdas/handlers/cancel-order.handler",
+      "name": "bench-commerce-lambda-25-bench-cancel-order",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "return-request": {
+      "handler": "fixtures/lambdas/handlers/return-request.handler",
+      "name": "bench-commerce-lambda-25-bench-return-request",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "customer-profile": {
+      "handler": "fixtures/lambdas/handlers/customer-profile.handler",
+      "name": "bench-commerce-lambda-25-bench-customer-profile",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "customer-token": {
+      "handler": "fixtures/lambdas/handlers/customer-token.handler",
+      "name": "bench-commerce-lambda-25-bench-customer-token",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "invoice": {
+      "handler": "fixtures/lambdas/handlers/invoice.handler",
+      "name": "bench-commerce-lambda-25-bench-invoice",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "catalog-import": {
+      "handler": "fixtures/lambdas/handlers/catalog-import.handler",
+      "name": "bench-commerce-lambda-25-bench-catalog-import",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "catalog-feed": {
+      "handler": "fixtures/lambdas/handlers/catalog-feed.handler",
+      "name": "bench-commerce-lambda-25-bench-catalog-feed",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "daily-summary": {
+      "handler": "fixtures/lambdas/handlers/daily-summary.handler",
+      "name": "bench-commerce-lambda-25-bench-daily-summary",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    },
+    "shipment-update": {
+      "handler": "fixtures/lambdas/handlers/shipment-update.handler",
+      "name": "bench-commerce-lambda-25-bench-shipment-update",
+      "package": {
+        "patterns": [
+          "!node_modules/**"
+        ]
+      }
+    }
+  },
+  "build": {
+    "esbuild": {
+      "minify": true,
+      "sourcemap": false,
+      "external": [
+        "pdfkit"
+      ],
+      "banner": {
+        "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+      }
+    }
+  }
+}
