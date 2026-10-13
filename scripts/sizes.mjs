@@ -43,13 +43,60 @@ async function collectOci(spec,cwd,attempt) {
   const nativeBuild={sourceCommit:native.sourceCommit,runId:native.runId,provider:native.provider,imageId:current.imageId,observedAt:new Date().toISOString(),...identityFile&&{originalFile:identityFile.relative}};
   return {...record,name:image.name,files,nativeBuild};
 }
+export async function resolveNativeManifest(spec,cwd,attempt) {
+  if(spec.format!=='lambda-zip')throw Error('Native archive observation only supports complete Lambda ZIPs');
+  const argv=spec.nativeManifest?.argv;if(!Array.isArray(argv)||!argv.length||argv.some(v=>typeof v!=='string'||!v))throw Error('Native artifact observer requires argv strings');
+  for(const key of ['provider','runId','sourceCommit','startedAt','commandFinishedAt'])if(typeof attempt[key]!=='string'||!attempt[key])throw Error('Native artifact observation needs current attempt metadata');
+  const result=await (attempt.runCommand||command)(argv,{cwd,env:{BENCH_PROVIDER:attempt.provider,BENCH_RUN_ID:attempt.runId,BENCH_SOURCE_COMMIT:attempt.sourceCommit,BENCH_STARTED_AT:attempt.startedAt,BENCH_COMMAND_FINISHED_AT:attempt.commandFinishedAt}});
+  if(result.exitCode!==0)throw Error('Current native artifact observer failed');
+  const native=JSON.parse(result.stdout);
+  if(native.schemaVersion!==1||native.functionCount!==spec.functionCount||!Array.isArray(native.files))throw Error('Native artifact observer has another schema or function count');
+  for(const key of ['provider','runId','sourceCommit','startedAt','commandFinishedAt'])if(native[key]!==attempt[key])throw Error('Native artifact observer differs from this '+key);
+  const signature=f=>JSON.stringify({name:f.name,role:f.role||'function',...((f.role||'function')==='function'&&{handler:f.handler,module:f.module})});
+  const expected=spec.files.map(signature).sort(),observed=native.files.map(signature).sort();
+  if(JSON.stringify(expected)!==JSON.stringify(observed))throw Error('Native artifact observer differs from the complete qualified name/role/handler contract');
+  const start=Date.parse(attempt.startedAt),finish=Date.parse(attempt.commandFinishedAt);if(!Number.isFinite(start)||!Number.isFinite(finish)||finish<start)throw Error('Native artifact observation has invalid timer boundaries');
+  for(const file of native.files) {
+    const declared=spec.files.find(f=>f.name===file.name&&(f.role||'function')===(file.role||'function'));
+    if(declared.resourceName&&declared.resourceName!==file.resourceName)throw Error('Native artifact resource key differs from qualification');
+    const current=await insideFile(cwd,file.path);
+    if(current.relative!==file.path||current.info.mtimeMs+1<start||current.info.mtimeMs>finish+1||typeof file.mtimeMs!=='number'||Math.abs(file.mtimeMs-current.info.mtimeMs)>1)throw Error('Native ZIP is stale or has another binding path');
+    if(!Number.isSafeInteger(file.bytes)||file.bytes!==current.info.size||!/^[a-f0-9]{64}$/.test(file.sha256||'')||await sha256(current.target)!==file.sha256)throw Error('Native artifact observer differs from the actual complete artifact');
+  }
+  const output=await mkdtemp(path.join(cwd,'artifact-bindings-')),file=path.join(output,'native-manifest.json');await writeFile(file,result.stdout,{flag:'wx'});
+  const proof={name:'native-bindings',role:'native-artifact-bindings',path:path.relative(cwd,file),bytes:Buffer.byteLength(result.stdout),sha256:await sha256(file)};
+  return {bindings:{...spec,files:native.files},nativeManifest:native,proof};
+}
 export async function collectArtifacts(spec,cwd,attempt={}) {
   const realCwd=await realpath(cwd);
   if(spec?.format==='oci-compressed')return collectOci(spec,realCwd,attempt);
   if(!spec||spec.qualified!==true||!['lambda-zip','heroku-slug'].includes(spec.format)||!Array.isArray(spec.files)||!spec.files.length) throw Error('A qualified complete artifact manifest is required');
+  const resolved=spec.nativeManifest?await resolveNativeManifest(spec,realCwd,attempt):null;if(resolved)spec=resolved.bindings;
   const files=[];const seen=new Set();const layers=new Set();
-  for(const item of spec.files) { const file=await realpath(path.resolve(cwd,item.path));const relative=path.relative(realCwd,file);if(relative.startsWith('..')||path.isAbsolute(relative))throw Error('Artifact is outside the generated project');if(seen.has(file)) throw Error('Artifact counted twice: '+file); seen.add(file); const info=await stat(file); if(!info.isFile()) throw Error('Artifact must be a file'); if(spec.format==='lambda-zip') {const magic=(await readFile(file)).subarray(0,4); if(!magic.equals(Buffer.from([0x50,0x4b,0x03,0x04]))) throw Error('Expected actual ZIP file: '+file);} const digest=await sha256(file);if(item.role==='layer'){if(layers.has(digest))throw Error('Shared layer counted twice');layers.add(digest);}files.push({role:item.role||'function',name:item.name,path:relative,bytes:info.size,sha256:digest}); }
-  if(spec.format==='lambda-zip'&&files.filter(f=>f.role==='function').length!==spec.functionCount) throw Error('Missing complete per-function ZIPs');
+  for(const item of spec.files) {
+    const role=item.role||'function';
+    if(spec.format==='lambda-zip'&&!['function','layer','source-map'].includes(role))throw Error('Unknown Lambda upload artifact role');
+    const {target:file,relative,info}=await insideFile(realCwd,item.path);
+    if(seen.has(file))throw Error('Artifact counted twice: '+file);seen.add(file);
+    const raw=await readFile(file);let sourceMap;
+    if(spec.format==='lambda-zip') {
+      if(role==='source-map') {
+        if(item.uploadedSeparately!==true)throw Error('Source map must be a separately uploaded native artifact');
+        sourceMap=sourceMapSummary(raw);
+      } else if(!raw.subarray(0,4).equals(Buffer.from([0x50,0x4b,0x03,0x04])))throw Error('Expected actual ZIP file: '+file);
+    }
+    const digest=await sha256(file);
+    if(item.sha256&&item.sha256!==digest||item.bytes!==undefined&&item.bytes!==info.size)throw Error('Native artifact binding checksum or size differs from the actual file');
+    if(role==='layer'){if(layers.has(digest))throw Error('Shared layer counted twice');layers.add(digest);}
+    files.push({role,name:item.name,path:relative,bytes:info.size,sha256:digest,...sourceMap&&{uploadedSeparately:true,sourceMap}});
+  }
+  if(spec.format==='lambda-zip') {
+    const functions=files.filter(f=>f.role==='function'),maps=files.filter(f=>f.role==='source-map');
+    if(functions.length!==spec.functionCount||new Set(functions.map(f=>f.name)).size!==functions.length)throw Error('Missing complete per-function ZIPs');
+    if(maps.some(m=>!functions.some(f=>f.name===m.name))||new Set(maps.map(m=>m.name)).size!==maps.length)throw Error('Separate source maps must belong once to selected functions');
+    const codeBytes=files.filter(f=>f.role!=='source-map').reduce((n,f)=>n+f.bytes,0),sourceMapBytes=maps.reduce((n,f)=>n+f.bytes,0);
+    return {complete:true,format:spec.format,bytes:codeBytes+sourceMapBytes,codeBytes,zipBytes:codeBytes,sourceMapBytes,sizeMetric:'total-application-upload-bytes',files,layersCountedOnce:true,...resolved&&{nativeManifest:resolved.nativeManifest,proofs:[resolved.proof]}};
+  }
   return {complete:true,format:spec.format,bytes:files.reduce((sum,f)=>sum+f.bytes,0),files,layersCountedOnce:true};
 }
 export async function verifyImportedOci(record,{base=root}={}) {
@@ -85,4 +132,46 @@ export async function verifyImportedOci(record,{base=root}={}) {
   for(const key of ['sourceCommit','runId','provider'])if(native[key]!==record[key]||bound[key]!==native[key])throw Error('OCI retained native proof differs from this source, run or provider');
   if(selected[0].imageId!==manifest.config.digest||bound.imageId!==selected[0].imageId)throw Error('OCI retained native identity does not match the manifest config');
   return {verified:true,sourceCommit:native.sourceCommit,runId:native.runId,provider:native.provider,imageId:selected[0].imageId,manifestDigest:computed.manifestDigest};
+}
+
+function sourceMapSummary(raw) {
+  let map;try{map=JSON.parse(raw.toString('utf8'));}catch{throw Error('Source map must be actual version 3 JSON');}
+  if(map.version!==3||!Array.isArray(map.sources)||!map.sources.length||map.sources.some(v=>typeof v!=='string'||!v)||!Array.isArray(map.names)||map.names.some(v=>typeof v!=='string')||typeof map.mappings!=='string'||!/^[A-Za-z0-9+/;,]*$/.test(map.mappings)||map.sourcesContent!==undefined&&(!Array.isArray(map.sourcesContent)||map.sourcesContent.length!==map.sources.length||map.sourcesContent.some(v=>v!==null&&typeof v!=='string')))throw Error('Source map must be actual version 3 JSON');
+  return {version:3,sourceCount:map.sources.length,nameCount:map.names.length,mappingCharacters:map.mappings.length};
+}
+export async function verifyImportedLambda(record,{base=root}={}) {
+  const a=record.artifacts;
+  if(record.kind!=='package'||record.status!=='passed'||a?.format!=='lambda-zip')throw Error('Lambda upload proof requires a passed Lambda packaging result');
+  const basePath=await realpath(base),paths=new Set(),layers=new Set();let codeBytes=0,sourceMapBytes=0;
+  for(const file of a.files) {
+    if(!['function','layer','source-map'].includes(file.role)||typeof file.evidenceFile!=='string'||!file.evidenceFile||path.isAbsolute(file.evidenceFile)||file.evidenceFile.split(/[\\/]/).includes('..'))throw Error('Every Lambda upload file needs a valid retained proof path');
+    if(record.evidence.filter(e=>e.file===file.evidenceFile&&e.sha256===file.sha256).length!==1)throw Error('Lambda upload proof is not bound to exact result evidence');
+    const retained=await insideFile(basePath,file.evidenceFile);
+    if(paths.has(retained.target))throw Error('Lambda upload proof counted twice');paths.add(retained.target);
+    if(file.bytes!==retained.info.size||await sha256(retained.target)!==file.sha256)throw Error('Lambda retained upload checksum or size differs');
+    const raw=await readFile(retained.target);
+    if(file.role==='source-map') {
+      if(file.uploadedSeparately!==true||JSON.stringify(sourceMapSummary(raw))!==JSON.stringify(file.sourceMap))throw Error('Retained native source map differs from its summary');
+      sourceMapBytes+=retained.info.size;
+    } else {
+      if(!raw.subarray(0,4).equals(Buffer.from([0x50,0x4b,0x03,0x04])))throw Error('Retained Lambda code is not an actual ZIP');
+      if(file.role==='layer'){if(layers.has(file.sha256))throw Error('Retained shared layer counted twice');layers.add(file.sha256);}
+      codeBytes+=retained.info.size;
+    }
+  }
+  if(a.codeBytes!==codeBytes||a.zipBytes!==codeBytes||a.sourceMapBytes!==sourceMapBytes||a.bytes!==codeBytes+sourceMapBytes||a.sizeMetric!=='total-application-upload-bytes')throw Error('Lambda upload summary differs from retained raw artifacts');
+  if(a.nativeManifest) {
+    const proofs=a.proofs?.filter(p=>p.role==='native-artifact-bindings');
+    if(proofs?.length!==1)throw Error('Native artifact binding summary needs exactly one retained proof');
+    const proof=proofs[0];
+    if(record.evidence.filter(e=>e.file===proof.evidenceFile&&e.sha256===proof.sha256).length!==1)throw Error('Native binding proof is not in result evidence');
+    const retained=await insideFile(basePath,proof.evidenceFile);
+    if(await sha256(retained.target)!==proof.sha256||retained.info.size!==proof.bytes)throw Error('Native binding proof checksum or size differs');
+    const native=JSON.parse(await readFile(retained.target,'utf8'));
+    if(native.schemaVersion!==1||native.functionCount!==a.files.filter(f=>f.role==='function').length||!Array.isArray(native.files))throw Error('Native binding proof has another schema/function count');
+    if(JSON.stringify(native)!==JSON.stringify(a.nativeManifest))throw Error('Native binding summary differs from retained raw manifest');
+    for(const key of ['provider','runId','sourceCommit','startedAt','commandFinishedAt'])if(native[key]!==record[key])throw Error('Native binding proof differs from the current '+key);
+    if(native.files.length!==a.files.length||native.files.some(f=>!a.files.some(v=>v.name===f.name&&v.role===(f.role||'function')&&v.path===f.path&&v.sha256===f.sha256&&v.bytes===f.bytes)))throw Error('Native binding descriptors differ from retained upload files');
+  }
+  return {verified:true,bytes:a.bytes,codeBytes,sourceMapBytes};
 }

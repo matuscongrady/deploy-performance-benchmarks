@@ -38,7 +38,16 @@ try{
    const zipPath=path.join(capture,inputs[index].functionID+'.zip');
    await nativeArchive(fs,path,archiver,glob,output.out,zipPath,output.sourcemaps,false,[],undefined);
    const bytes=await readFile(zipPath);
-   return {name:inputs[index].functionID,role:'function',handler:output.handler,module:output.handler.slice(0,output.handler.lastIndexOf('.'))+'.mjs',runtime:'nodejs22.x',path:zipPath,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
+   const name=inputs[index].functionID;
+   const code={name,role:'function',handler:output.handler,module:output.handler.slice(0,output.handler.lastIndexOf('.'))+'.mjs',runtime:'nodejs22.x',path:zipPath,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
+   const sourceMaps=[];
+   for(const source of output.sourcemaps||[]) {
+     const file=path.resolve(source),relative=path.relative(process.cwd(),file);
+     if(relative.startsWith('..')||path.isAbsolute(relative))throw Error('Native source map is outside the generated project');
+     const raw=await readFile(file);
+     sourceMaps.push({name,role:'source-map',path:file,bytes:raw.length,sha256:createHash('sha256').update(raw).digest('hex'),uploadedSeparately:true,nativeUpload:'SST Function createCode uploads each Runtime.BuildOutput.sourcemaps file outside the code ZIP'});
+   }
+   return [code,...sourceMaps];
   })();
   // Register a handler immediately so an archive failure is not an unhandled rejection.
   job.catch(()=>child.kill());jobs.push(job);
@@ -46,6 +55,7 @@ try{
  await finished;
  if(seen.size!==inputs.length)throw Error('Native SST build output count mismatch');
 }catch(error){child.kill();await Promise.allSettled(jobs);await finished.catch(()=>{});throw error;}
-const artifacts=(await Promise.all(jobs)).sort((a,b)=>inputs.findIndex(i=>i.functionID===a.name)-inputs.findIndex(i=>i.functionID===b.name));
-await writeFile(path.join(capture,'manifest.json'),JSON.stringify({provider:'sst',sourceRoot:path.dirname(path.dirname(inputs[0].handler)),method:'pinned upstream runtime Collection.Build plus verbatim native Function archive body; no deploy/publish',qualificationRequired:true,encryptionKeySource:'environment; value not recorded',provenance,artifacts,totalCompressedBytes:artifacts.reduce((n,a)=>n+a.bytes,0)},null,2)+'\n');
-console.log(JSON.stringify({artifacts:artifacts.length,totalCompressedBytes:artifacts.reduce((n,a)=>n+a.bytes,0)}));
+const artifacts=(await Promise.all(jobs)).flat().sort((a,b)=>inputs.findIndex(i=>i.functionID===a.name)-inputs.findIndex(i=>i.functionID===b.name));
+const codeBytes=artifacts.filter(a=>a.role!=='source-map').reduce((n,a)=>n+a.bytes,0),sourceMapBytes=artifacts.filter(a=>a.role==='source-map').reduce((n,a)=>n+a.bytes,0);
+await writeFile(path.join(capture,'manifest.json'),JSON.stringify({provider:'sst',sourceRoot:path.dirname(path.dirname(inputs[0].handler)),method:'pinned upstream runtime Collection.Build plus verbatim native Function archive body; no deploy/publish',qualificationRequired:true,encryptionKeySource:'environment; value not recorded',provenance,artifacts,sourceCommit:process.env.BENCH_SOURCE_COMMIT,runId:process.env.BENCH_RUN_ID,totalCompressedBytes:codeBytes,codeBytes,sourceMapBytes,totalUploadBytes:codeBytes+sourceMapBytes},null,2)+'\n');
+console.log(JSON.stringify({artifacts:artifacts.length,totalCompressedBytes:codeBytes,sourceMapBytes,totalUploadBytes:codeBytes+sourceMapBytes}));

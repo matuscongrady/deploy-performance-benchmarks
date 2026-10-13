@@ -12,17 +12,20 @@ export async function scenarios() { return (await json(path.join(root,'scenarios
 export async function scenarioById(id) { const value=(await scenarios()).find(s=>s.id===id); if(!value) throw Error('Unknown test: '+id); return value; }
 export function parseArgs(args) { const positional=[]; const flags={}; for(let i=0;i<args.length;i++) { if(args[i].startsWith('--')) { const key=args[i].slice(2); if(['execute'].includes(key)) flags[key]=true; else { if(!args[i+1]||args[i+1].startsWith('--')) throw Error('Missing value for --'+key); flags[key]=args[++i]; } } else positional.push(args[i]); } return {positional,flags}; }
 export async function sha256(file) { return createHash('sha256').update(await readFile(file)).digest('hex'); }
-export async function command(argv,{cwd=root,env={},stdoutFile,stderrFile,timeoutMs=1800000}={}) {
+export async function command(argv,{cwd=root,env={},stdoutFile,stderrFile,timeoutMs=1800000,signal}={}) {
   if(!Array.isArray(argv)||!argv.length||argv.some(a=>typeof a!=='string')) throw Error('Commands must be argv arrays');
+  signal?.throwIfAborted();
   const started=performance.now(); const wallStarted=new Date().toISOString();
   return await new Promise((resolve,reject)=>{
     const child=spawn(argv[0],argv.slice(1),{cwd,env:{...process.env,...env},stdio:['ignore','pipe','pipe'],detached:process.platform!=='win32'});
     const out=[],err=[]; let timedOut=false; let spawnError; let killTimer;
     const kill=(signal)=>{try{if(process.platform!=='win32'&&child.pid)process.kill(-child.pid,signal);else child.kill(signal);}catch{}};
-    const timer=setTimeout(()=>{timedOut=true;kill('SIGTERM');killTimer=setTimeout(()=>kill('SIGKILL'),1000);},timeoutMs);
+    const stop=()=>{kill('SIGTERM');killTimer=setTimeout(()=>kill('SIGKILL'),1000);};
+    const aborted=()=>stop();signal?.addEventListener('abort',aborted,{once:true});if(signal?.aborted)stop();
+    const timer=setTimeout(()=>{timedOut=true;stop();},timeoutMs);
     child.stdout.on('data',b=>out.push(b)); child.stderr.on('data',b=>err.push(b));
     child.on('error',e=>{spawnError=e.message;err.push(Buffer.from(e.message));});
-    child.on('close',async(code,signal)=>{clearTimeout(timer);if(killTimer)clearTimeout(killTimer); const stdout=Buffer.concat(out).toString(),stderr=Buffer.concat(err).toString(); try {if(stdoutFile) await writeFile(stdoutFile,stdout); if(stderrFile) await writeFile(stderrFile,stderr); resolve({argv,cwd,exitCode:spawnError?127:code,signal,timedOut,spawnError,startedAt:wallStarted,finishedAt:new Date().toISOString(),durationMs:performance.now()-started,stdout,stderr});} catch(e){reject(e);} });
+    child.on('close',async(code,childSignal)=>{signal?.removeEventListener('abort',aborted);clearTimeout(timer);if(killTimer)clearTimeout(killTimer); const stdout=Buffer.concat(out).toString(),stderr=Buffer.concat(err).toString(); try {if(stdoutFile) await writeFile(stdoutFile,stdout); if(stderrFile) await writeFile(stderrFile,stderr); resolve({argv,cwd,exitCode:spawnError?127:code,signal:childSignal,timedOut,spawnError,startedAt:wallStarted,finishedAt:new Date().toISOString(),durationMs:performance.now()-started,stdout,stderr});} catch(e){reject(e);} });
   });
 }
 export function safeId(value,label='identifier') { if(!/^[a-z0-9][a-z0-9-]{2,60}$/.test(value)) throw Error('Invalid '+label+': use 3–61 lowercase letters, digits and hyphens'); return value; }
@@ -90,7 +93,7 @@ export function requireGitCacheObserver(q) {
   if(q.pipeline?.engine==='github-actions')return;
   if(!Array.isArray(q.pipeline?.evidence?.argv)||!q.pipeline.evidence.argv.length)throw Error('Hosted qualification requires a per-attempt native cache/runner evidence observer');
 }
-export async function bindGitCacheEvidence({q,identity,completion,runCommand=command,base=root}) {
+export async function bindGitCacheEvidence({q,identity,completion,predecessor,runCommand=command,base=root}) {
   requireGitCacheObserver(q);
   const mode=q.pipeline.engine==='github-actions'?'github-actions':'hosted';
   const directory=path.join(base,'.work/evidence',identity.runId,identity.provider);await mkdir(directory,{recursive:true});
@@ -109,7 +112,7 @@ export async function bindGitCacheEvidence({q,identity,completion,runCommand=com
     observation=JSON.parse(result.stdout);nativeFile=path.join(directory,'native-hosted.json');await saveResult(nativeFile,observation);
   }
   validateNativeCacheObservation(observation,identity,completion,mode);
-  const proof={schemaVersion:1,mode,...identity,capturedAt:new Date().toISOString(),runner:observation.runner,cache:observation.cache,rolloutAdmission:observation.rolloutAdmission,completion,nativeEvidence:{file:path.relative(base,nativeFile),sha256:await sha256(nativeFile)}};
+  const proof={schemaVersion:1,mode,...identity,predecessor,capturedAt:new Date().toISOString(),runner:observation.runner,cache:observation.cache,rolloutAdmission:observation.rolloutAdmission,completion,nativeEvidence:{file:path.relative(base,nativeFile),sha256:await sha256(nativeFile)}};
   await saveResult(proofFile,proof);return await readCacheEvidence(proofFile,identity,{base});
 }
 export async function finishGitVerification({wait,capture,compare,before}) {
@@ -144,6 +147,20 @@ export async function verifyImportedNativePackage(record,{base=root}={}) {
   if(record.artifacts.businessVerification.observations.some(o=>Date.parse(o.observedAt)<Date.parse(completion.finishedAt)))throw Error('Provider-native business checks must follow native completion');
   return {verified:true,nativeBuildId:native.nativeBuildId,sizeAvailable:false};
 }
+export function validatePredecessorSummary(record) {
+  const p=record.predecessor;
+  if(!p||p.verified!==true||!p.file||! /^[a-f0-9]{64}$/.test(p.sha256||'')||!p.proofFile||! /^[a-f0-9]{64}$/.test(p.proofSHA||'')||!record.evidence.some(e=>e.file===p.proofFile&&e.sha256===p.proofSHA))throw Error('Repeat results require immutable predecessor evidence');
+  if(p.appId!==record.appId||p.provider!==record.provider||p.stage!==record.stage||p.region!==record.environment.region||p.scenario.replace(/-git-(cold|repeat)$/,'')!==record.scenario.replace(/-git-(cold|repeat)$/,'')||p.branch!==record.pipeline?.branch||p.sourceCommit===record.sourceCommit)throw Error('Repeat predecessor differs from the current source series/application');
+  if(p.sourceLineage?.verified!==true||p.sourceLineage.ancestorSourceCommit!==p.sourceCommit||p.sourceLineage.sourceCommit!==record.sourceCommit)throw Error('Repeat result lacks bound predecessor ancestry');
+  const nativeEnd=Date.parse(p.nativeCurrent?.finishedAt),idleStart=Math.max(Date.parse(p.admittedAt),nativeEnd);
+  const idle=Date.parse(record.startedAt)-idleStart;
+  if(!Number.isFinite(idle)||idle<900000||p.idleIntervalMs!==idle||p.idleStartedAt!==new Date(idleStart).toISOString()||Date.parse(p.readyAt)>Date.parse(p.admittedAt))throw Error('Repeat result has an invalid idle interval');
+  if(!Number.isFinite(Date.parse(p.nativeCurrent?.observedAt))||Date.parse(p.nativeCurrent.observedAt)>Date.parse(record.startedAt))throw Error('Latest predecessor identity must be observed before the push starts');
+  if(p.nativeCurrent?.verified!==true||p.nativeCurrent.latest!==true||p.nativeCurrent.sourceCommit!==p.sourceCommit||p.nativeCurrent.status!=='succeeded'||String(p.nativeCurrent.runId)!==String(p.nativeRunId))throw Error('Repeat result lacks latest predecessor identity');
+  return p;
+}
+
+
 export function validateRecord(r) {
   if(r.schemaVersion!==1||!['package','deploy'].includes(r.kind)||!['passed','failed','unqualified'].includes(r.status)) throw Error('Invalid result schema/kind/status');
   for(const key of ['scenario','provider','runId','sourceCommit','startedAt','finishedAt']) if(typeof r[key]!=='string'||!r[key]) throw Error('Missing '+key);
@@ -156,6 +173,15 @@ export function validateRecord(r) {
     cacheIdentity(r.cacheEvidence,{...r,series:r.cacheEvidence.series});
     if(!r.cacheEvidence.proofFile||!/^[a-f0-9]{64}$/.test(r.cacheEvidence.proofSHA||'')||!r.evidence.some(e=>e.file===r.cacheEvidence.proofFile&&e.sha256===r.cacheEvidence.proofSHA))throw Error('Passed results require matching immutable per-attempt cache proof and evidence checksum');
     if(r.kind==='deploy') {
+      if(r.scenario.endsWith('-git-repeat')){validatePredecessorSummary(r);if(JSON.stringify(r.cacheEvidence.predecessor)!==JSON.stringify(r.predecessor))throw Error('Repeat predecessor differs from the immutable cache proof');}
+      if(r.scenario.endsWith('-cli')) {
+        const native=r.nativeCompletion,after=native?.postCompletionReadiness?.observations;
+        if(native?.verified!==true||native.outsideReadinessTimer!==true||!Number.isFinite(Date.parse(native.finishedAt))||Date.parse(native.finishedAt)<Date.parse(r.startedAt)||native.postCompletionReadiness?.verified!==true||!Array.isArray(after)||after.length!==r.readiness?.observations?.length||r.readiness.observations.some(o=>!after.some(a=>a.name===o.name&&a.observed?.revision===o.expected.revision)))throw Error('CLI results require successful native completion and post-completion business revisions outside the readiness timer');
+      }
+      if(r.scenario.includes('-git-')) {
+        const completed=Date.parse(r.pipelineCompletion?.verifiedAt),admitted=Date.parse(r.admittedAt),after=r.postCompletionReadiness?.observations;
+        if(!Number.isFinite(completed)||completed<Date.parse(r.startedAt)||!Number.isFinite(admitted)||admitted<completed||r.postCompletionReadiness?.verified!==true||!Array.isArray(after)||after.length!==r.readiness?.observations?.length||r.readiness.observations.some(o=>!after.some(a=>a.name===o.name&&a.observed?.revision===o.expected.revision&&Number.isFinite(Date.parse(a.observedAt))&&Date.parse(a.observedAt)>=completed&&Date.parse(a.observedAt)<=admitted)))throw Error('Git results require all business revisions after native terminal success and outside the readiness timer');
+      }
       if(r.scenario.includes('-git-')&&(r.pipelineCompletion?.verified!==true||r.pipelineCompletion.sourceCommit!==r.sourceCommit||r.pipelineCompletion.status!=='succeeded'||!r.pipelineCompletion.runId))throw Error('Git results require successful native pipeline completion for the pushed SHA');
       if(r.scenario.includes('-git-')&&(r.cacheEvidence.mode==='local'||r.cacheEvidence.completion?.runId!==r.pipelineCompletion.runId||r.cacheEvidence.completion?.runAttempt!==r.pipelineCompletion.runAttempt))throw Error('Git cache proof must identify the completed native pipeline attempt');
       if(r.scenario.includes('five-services')&&(r.reuse?.verified!==true||r.reuse.observations?.length!==2||!['inventory','webhooks'].every(name=>r.reuse.observations.some(s=>s.name===name&&s.unchanged===true))))throw Error('Five-service results need verified unchanged native component identities');
@@ -178,7 +204,16 @@ export function validateRecord(r) {
         const native=r.artifacts.nativeBuild;
         if(!native||native.sourceCommit!==r.sourceCommit||native.runId!==r.runId||native.provider!==r.provider||!/^sha256:[a-f0-9]{64}$/.test(native.imageId||'')||!r.artifacts.blobs.some(b=>b.digest===native.imageId&&['application/vnd.oci.image.config.v1+json','application/vnd.docker.container.image.v1+json'].includes(b.mediaType)))throw Error('OCI artifacts require a current source/run/provider build identity matching the image config blob');
       }
-      const expectedCount=Number(r.scenario.match(/lambda-(1|5|25)$/)?.[1]);if(expectedCount) {const functions=r.artifacts.files?.filter(f=>f.role==='function');if(r.artifacts.format!=='lambda-zip'||functions?.length!==expectedCount)throw Error('Every selected function ZIP is required');const probes=r.artifacts.businessVerification?.completeZipBusinessProbes;if(!Array.isArray(probes)||probes.length!==expectedCount||new Set(probes.map(p=>p.name)).size!==expectedCount||probes.some(p=>!p.revision))throw Error('Every complete Lambda ZIP needs a business/revision verification');}
+      const expectedCount=Number(r.scenario.match(/lambda-(1|5|25)$/)?.[1]);if(expectedCount) {
+        const a=r.artifacts,functions=a.files?.filter(f=>f.role==='function'),maps=a.files?.filter(f=>f.role==='source-map');
+        if(a.format!=='lambda-zip'||functions?.length!==expectedCount||new Set(functions.map(f=>f.name)).size!==expectedCount)throw Error('Every selected function ZIP is required');
+        if(a.sizeMetric!=='total-application-upload-bytes'||a.files.some(f=>!['function','layer','source-map'].includes(f.role)||!f.name||!f.path||!Number.isSafeInteger(f.bytes)||f.bytes<=0||!/^[a-f0-9]{64}$/.test(f.sha256||'')||!f.evidenceFile||!r.evidence.some(e=>e.file===f.evidenceFile&&e.sha256===f.sha256))||new Set(a.files.map(f=>f.path)).size!==a.files.length)throw Error('Lambda upload sizes need retained code and auxiliary file proofs');
+        const codeBytes=a.files.filter(f=>f.role!=='source-map').reduce((n,f)=>n+f.bytes,0),mapBytes=maps.reduce((n,f)=>n+f.bytes,0);
+        if(a.codeBytes!==codeBytes||a.zipBytes!==codeBytes||a.sourceMapBytes!==mapBytes||a.bytes!==codeBytes+mapBytes)throw Error('Lambda upload total must equal code ZIPs/layers plus separate native source maps');
+        if(maps.some(m=>m.uploadedSeparately!==true||m.sourceMap?.version!==3||!functions.some(f=>f.name===m.name))||new Set(maps.map(m=>m.name)).size!==maps.length)throw Error('Separate source maps must belong once to selected function names');
+        if(r.provider==='sst'&&(maps.length!==functions.length||functions.some(f=>!maps.some(m=>m.name===f.name))))throw Error('SST upload size requires every separately uploaded native function source map');
+        const probes=a.businessVerification?.completeZipBusinessProbes;if(!Array.isArray(probes)||probes.length!==expectedCount||new Set(probes.map(p=>p.name)).size!==expectedCount||probes.some(p=>!p.revision))throw Error('Every complete Lambda ZIP needs a business/revision verification');
+      }
     }
   }
   return r;

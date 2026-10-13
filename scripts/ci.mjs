@@ -6,6 +6,7 @@ import { readFile, writeFile, mkdir, appendFile, chmod } from 'node:fs/promises'
 import { root, scenarioById, safeId, command, sha256 } from './lib.mjs';
 import { prepare, versions } from '../providers/index.mjs';
 import { checkQualification } from './qualification.mjs';
+import {checkPredecessorRecord} from './git-predecessor.mjs';
 import { probe } from './probe.mjs';
 import {validateExistingApplication,verifyExistingApplication} from './existing-app.mjs';
 import {needsSstRollout,admitSstRollout,captureSstRolloutBaseline} from './sst-rollout.mjs';
@@ -71,14 +72,17 @@ async function configuration({qualified=false}={}) {
     if(process.version!=='v22.22.0')throw Error('Measured CI must use Node.js 22.22.0');
     if(!/^arn:aws:iam::\d{12}:role\/[A-Za-z0-9+=,.@_/-]+$/.test(requireValue('BENCH_AWS_ROLE_ARN')))throw Error('Invalid benchmark OIDC role');
     try {qualification=JSON.parse(requireValue('BENCH_QUALIFICATION_JSON'));}catch {throw Error('BENCH_QUALIFICATION_JSON must contain valid JSON');}
-    await checkQualification(qualification,scenario,provider);
+    await checkQualification(qualification,scenario,provider,{sourceBound:true});
     if(qualification.appId!==appId||qualification.environment.region!==region||qualification.stage!==stage)throw Error('Qualification must match the existing application ID, stage and region');
     if(!/^\d{12}$/.test(qualification.environment.accountId||''))throw Error('Qualification needs the disposable AWS account ID');
     if(requireValue('BENCH_AWS_ROLE_ARN').split(':')[4]!==qualification.environment.accountId)throw Error('OIDC role account differs from the qualified disposable account');
     validateExistingApplication(qualification,provider);
     if(qualification.pipeline?.branch!==branch||qualification.pipeline?.sourceCommit!==sourceCommit||!qualification.pipeline?.configurationEvidence)throw Error('Qualification must match the exact pushed branch and source commit');
     if(qualification.pipeline.workflowSha256!==await sha256(path.join(root,'.github/workflows/deploy-benchmark.yml')))throw Error('Qualification must bind the reviewed deployment workflow SHA-256');
-    if(scenario.journey==='git-repeat') {const time=Date.parse(qualification.previousReadyAt);if(!Number.isFinite(time)||Date.now()-time<900000)throw Error('Repeat pushes require at least 15 minutes since previous verified readiness');}
+    if(scenario.journey==='git-repeat') {
+      const previous=checkPredecessorRecord(qualification.predecessor,qualification,{scenario:scenario.id,provider,appId,sourceCommit});
+      qualification.previousReadyAt=previous.finishedAt;
+    }
     validateProbeCommands(qualification,region);
     if(provider==='serverless')requireValue('SERVERLESS_ACCESS_KEY');
     if(provider==='candidate') {
@@ -127,6 +131,10 @@ async function run(config) {
     if(identity.exitCode!==0||identity.stdout.trim()!==q.environment.accountId)throw Error('OIDC credentials do not match the qualified disposable account');
     report.existingApplication=await verifyExistingApplication({q,provider,appName:plan.appName,region:config.region});
     report.baseline=await probe(q.baselineProbes,{timeoutMs:30000});
+    if(scenario.journey==='git-repeat') {
+      const previous=checkPredecessorRecord(q.predecessor,q,{scenario:scenario.id,provider,appId:config.appId,sourceCommit:config.sourceCommit});
+      report.predecessor={file:q.predecessor.file,sha256:q.predecessor.sha256,sourceCommit:previous.sourceCommit,readyAt:previous.finishedAt,admittedAt:previous.admittedAt};
+    }
     if(needsSstRollout(scenario,provider))report.rolloutBaseline=await captureSstRolloutBaseline(q);
     let componentsBefore;
     if(scenario.fixture==='five-services') {const {captureComponents}=await import('./component-state.mjs');componentsBefore=await captureComponents(q.componentSnapshots);}

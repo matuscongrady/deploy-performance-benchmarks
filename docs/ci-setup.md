@@ -90,7 +90,7 @@ sha256sum .github/workflows/deploy-benchmark.yml
 
 Commit the source edit first, then put that commit's full SHA in the qualification secret. Its scenario, provider, application ID, region, stage and trial branch must match. Every changed function/service's updated probe must expect the new revision. Unchanged services keep their previous revision.
 
-A repeat-push qualification must also contain `previousReadyAt`, copied from the preceding deployment's verified readiness time. CI refuses a repeat before 15 minutes have elapsed. The operator must also wait before calling the external push runner; a queued job is not a substitute for that wait.
+A repeat-push qualification must contain the checksum-bound `predecessor` record described below. CI derives its compatibility readiness timestamp from that record and refuses a repeat before 15 idle minutes have elapsed since admission. The external runner also checks the latest native identity and actual interval before pushing; time spent queueing cannot replace that wait.
 
 Command probes use this exact form:
 
@@ -117,7 +117,7 @@ The workflow saves these narrowly scoped caches after a successful deployment:
 | CDK | npm's package download cache |
 | SST | npm's package download cache and generated platform dependencies |
 
-Before measuring a repeat series, complete an untimed workflow deployment on the same trial branch to populate its cache. GitHub restricts cache visibility by branch; a cache saved on a different trial branch may not be available. Wait 15 minutes after that deployment passes every probe, then commit another revision, update the qualification secret and push again.
+Before measuring a repeat series, retain a successful cold or repeat Git result from the same provider trial branch. Set `predecessor` in the qualification secret to `{file, sha256, record}`, containing its saved raw-result path, SHA-256 and complete JSON record. That result must match the app/provider/stage/region/fixture series and baseline revisions, and its source must be an ancestor of the new commit. The push runner verifies its saved cache/evidence checksums and the latest native deployment identity before pushing. CI consumes the checksum-bound record; it derives `previousReadyAt` from that record instead of accepting a standalone date. GitHub restricts cache visibility by branch; a cache saved on a different provider trial branch may not be available. Wait 15 idle minutes after native completion and final admission, then commit another revision, update the qualification secret and push again. An unrecorded untimed deployment cannot supply the predecessor proof.
 
 A repeat push restores a compatible cache from the same provider, fixture, application ID and dependency locks. It uses a new VM. It does not restore cloud credentials, CloudFormation state, qualifications or arbitrary caller-supplied paths.
 

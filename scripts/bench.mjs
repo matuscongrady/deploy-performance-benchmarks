@@ -4,6 +4,8 @@ import os from 'node:os';
 import {mkdir,readFile,copyFile} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord,readCacheEvidence} from './lib.mjs';
+import {verifyImportedPredecessor} from './git-predecessor.mjs';
+import {measureDeployment} from './deployment-timer.mjs';
 import {needsSstRollout,admitSstRollout,captureSstRolloutBaseline} from './sst-rollout.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
 const [operation,id,provider]=positional;
@@ -31,7 +33,7 @@ try {
     if(qualification.stage!==(flags.stage||'bench'))throw Error('Qualification stage differs from the generated project');
     if(qualification.appId!==appId)throw Error('Qualification application ID differs from --app-id');
     const {checkQualification}=await import('./qualification.mjs');
-    await checkQualification(qualification,scenario,provider);
+    await checkQualification(qualification,scenario,provider,{sourceBound:true});
     for(const item of qualification.qualificationEvidence) if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Qualification evidence checksum mismatch');
     if(provider==='candidate'&&await sha256(process.env.CANDIDATE_CLI)!==qualification.toolVersion.sha256) throw Error('Candidate executable hash differs from qualification');
     if(scenario.kind==='deploy'&&['candidate','serverless','sst','cdk'].includes(provider)){
@@ -57,26 +59,38 @@ try {
     if(cacheEvidence.nativeClean&&JSON.stringify(cacheEvidence.nativeClean)!==JSON.stringify(qualification.cacheControl?.nativeClean))throw Error('Native clean control differs from qualification');
     if(cacheEvidence.series==='clean'&&cacheEvidence.nativeClean?.verified){const {env={}}=cacheEvidence.nativeClean;for(const [key,value]of Object.entries(env))if((plan.env?.[key]??process.env[key])!==value)throw Error('Qualified native no-cache environment is missing: '+key);if(!Object.keys(env).length)throw Error('Native clean control requires a qualified no-cache environment');}
     const evidenceDir=path.join(root,'.work','evidence',runId,provider);await mkdir(evidenceDir,{recursive:true});
-    const startedAt=new Date().toISOString(),start=performance.now();
+    let startedAt,start,commandFinishedAt,commandDurationMs,finishedAt,durationMs;
     const logs=[]; let status='passed',failure;
-    for(let i=0;i<commands.length;i++) {
-      const stdoutFile=path.join(evidenceDir,`command-${i}.stdout.log`),stderrFile=path.join(evidenceDir,`command-${i}.stderr.log`);
-      const result=await command(commands[i],{cwd:plan.cwd,env:{...plan.env,BENCH_SOURCE_COMMIT:git.stdout.trim(),BENCH_RUN_ID:runId},stdoutFile,stderrFile});
-      logs.push({argv:result.argv,exitCode:result.exitCode,durationMs:result.durationMs,stdoutFile,stderrFile});
-      if(result.exitCode!==0) {status='failed';failure=`Native command ${i+1} failed`;break;}
+    let readiness={verified:false},artifacts={complete:false},nativeCompletion;
+    async function runNative() {
+      const nativeStart=performance.now();let passed=true,nativeFailure;
+      for(let i=0;i<commands.length;i++) {
+        const stdoutFile=path.join(evidenceDir,`command-${i}.stdout.log`),stderrFile=path.join(evidenceDir,`command-${i}.stderr.log`);
+        const result=await command(commands[i],{cwd:plan.cwd,env:{...plan.env,BENCH_SOURCE_COMMIT:git.stdout.trim(),BENCH_RUN_ID:runId},stdoutFile,stderrFile});
+        logs.push({argv:result.argv,exitCode:result.exitCode,durationMs:result.durationMs,stdoutFile,stderrFile});
+        if(result.exitCode!==0) {passed=false;nativeFailure=`Native command ${i+1} failed`;break;}
+      }
+      commandFinishedAt=new Date().toISOString();commandDurationMs=performance.now()-nativeStart;
+      return {passed,failure:nativeFailure,finishedAt:commandFinishedAt,durationMs:commandDurationMs};
     }
-    const commandFinishedAt=new Date().toISOString(),commandDurationMs=performance.now()-start;
-    let readiness={verified:false},artifacts={complete:false};
-    if(status==='passed'&&scenario.kind==='deploy') {
+    if(scenario.kind==='deploy') {
       const {probe}=await import('./probe.mjs');
-      try { readiness=await probe(qualification.probes,{timeoutMs:qualification.timeoutMs||900000}); } catch(e){status='failed';failure=e.message;}
+      const measured=await measureDeployment({runNative,probeReady:signal=>probe(qualification.probes,{timeoutMs:qualification.timeoutMs||900000,signal})});
+      ({startedAt,finishedAt,durationMs,readiness,status,failure}=measured);
+      nativeCompletion={verified:measured.completion.passed,outsideReadinessTimer:true,finishedAt:commandFinishedAt};
+      // Keep readiness as the first observation, but do not admit a rollback or failed native completion.
+      if(status==='passed')try{nativeCompletion.postCompletionReadiness=await probe(qualification.probes,{timeoutMs:qualification.timeoutMs||900000});}catch(e){status='failed';failure=e.message;nativeCompletion.verified=false;}
+    } else {
+      startedAt=new Date().toISOString();start=performance.now();
+      const completed=await runNative();if(!completed.passed){status='failed';failure=completed.failure;}
+      durationMs=performance.now()-start;finishedAt=commandFinishedAt;
     }
     if(status==='passed'&&scenario.kind==='package') {
       const {collectArtifacts}=await import('./sizes.mjs');
       try {
         artifacts=await collectArtifacts(qualification.artifacts,plan.cwd,{startedAt,commandFinishedAt,sourceCommit:git.stdout.trim(),runId,provider});
         if(scenario.fixture.startsWith('lambda-')) {
-          const bindings=path.join(evidenceDir,'artifact-bindings.json');await save(bindings,qualification.artifacts);
+          const bindings=path.join(evidenceDir,'artifact-bindings.json');await save(bindings,artifacts.nativeManifest?{...qualification.artifacts,files:artifacts.nativeManifest.files}:qualification.artifacts);
           const stdoutFile=path.join(evidenceDir,'packaged-business.stdout.log'),stderrFile=path.join(evidenceDir,'packaged-business.stderr.log');
           const checked=await command(['node',path.join(root,'providers/check-lambda-zips.mjs'),bindings,path.join(root,'fixtures/manifest.json'),scenario.fixture,plan.cwd],{cwd:plan.cwd,stdoutFile,stderrFile});
           logs.push({...checked,stdoutFile,stderrFile,phase:'verification-outside-timer'});
@@ -85,20 +99,19 @@ try {
         }
       } catch(e){status='unqualified';failure=e.message;}
     }
-    const finish=performance.now(),finishedAt=new Date().toISOString();
     let reuse,rolloutAdmission;
     if(status==='passed'&&needsSstRollout(scenario,provider)){try{rolloutAdmission=await admitSstRollout(qualification,{baseline:rolloutBaseline});}catch(e){status='failed';failure=e.message;rolloutAdmission=e.rolloutAdmission;}}
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
     if(rolloutAdmission){const file=path.join(evidenceDir,'rollout-admission.json');await save(file,rolloutAdmission);evidence.push({file:path.relative(root,file),sha256:await sha256(file)});}
-    for(const artifact of artifacts.files||[])if(artifacts.format==='oci-compressed'){
+    for(const artifact of [...(artifacts.files||[]),...(artifacts.proofs||[])])if(['oci-compressed','lambda-zip'].includes(artifacts.format)){
       const file=path.join(evidenceDir,'artifacts',artifact.path);await mkdir(path.dirname(file),{recursive:true});
       await copyFile(path.resolve(plan.cwd,artifact.path),file,constants.COPYFILE_EXCL);
       artifact.evidenceFile=path.relative(root,file);
       evidence.push({file:artifact.evidenceFile,sha256:artifact.sha256});
     }
     for(const log of logs) for(const file of [log.stdoutFile,log.stderrFile]) evidence.push({file:path.relative(root,file),sha256:await sha256(file)});
-    const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt:scenario.kind==='package'?commandFinishedAt:finishedAt,durationMs:scenario.kind==='package'?commandDurationMs:finish-start,commandDurationMs,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
+    const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt,durationMs,commandDurationMs,nativeCompletion,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
     if(rolloutAdmission)record.rolloutAdmission=rolloutAdmission;
     validateRecord(record); await saveResult(resultFile,record);
     console.log(JSON.stringify(record,null,2)); if(status!=='passed') process.exitCode=1;
@@ -112,19 +125,29 @@ try {
     if(record.status==='passed'&&record.kind==='deploy'){
       for(const expectedProbe of qualification.probes){const observation=record.readiness.observations.find(o=>o.name===expectedProbe.name);const expected=structuredClone(expectedProbe.expected);if(expectedProbe.body&&Object.hasOwn(expectedProbe.body,'jobId'))delete expected.jobId;
         if(!observation||!contains(observation.observed,expected))throw Error('Imported business response differs from qualification: '+expectedProbe.name);
+        if(record.scenario.includes('-git-')){const after=record.postCompletionReadiness.observations.find(o=>o.name===expectedProbe.name);if(!after||!contains(after.observed,expected))throw Error('Imported post-terminal business response differs from qualification: '+expectedProbe.name);}
+        if(record.scenario.endsWith('-cli')) {const after=record.nativeCompletion.postCompletionReadiness.observations.find(o=>o.name===expectedProbe.name);if(!after||!contains(after.observed,expected)||!Number.isFinite(Date.parse(after.observedAt))||Date.parse(after.observedAt)<Date.parse(record.nativeCompletion.finishedAt))throw Error('Imported post-completion business response differs from qualification: '+expectedProbe.name);}
       }
     }
     if(record.status==='passed'&&record.kind==='package') {
       if(record.artifacts.format!==qualification.artifacts.format)throw Error('Imported artifact format differs from qualification');
-      if(scenario.fixture.startsWith('lambda-')){const names=qualification.artifacts.files.filter(f=>(f.role||'function')==='function').map(f=>f.name).sort();if(JSON.stringify(record.artifacts.files.filter(f=>f.role==='function').map(f=>f.name).sort())!==JSON.stringify(names))throw Error('Imported function artifacts differ from qualification');}
+      if(scenario.fixture.startsWith('lambda-')) {
+        const key=f=>JSON.stringify({name:f.name,role:f.role||'function'});
+        if(JSON.stringify(record.artifacts.files.map(key).sort())!==JSON.stringify(qualification.artifacts.files.map(key).sort()))throw Error('Imported upload artifact roles/names differ from qualification');
+        if(record.artifacts.nativeManifest)for(const file of record.artifacts.nativeManifest.files.filter(f=>(f.role||'function')==='function')){const declared=qualification.artifacts.files.find(f=>f.name===file.name&&(f.role||'function')==='function');if(file.handler!==declared.handler||file.module!==declared.module||declared.resourceName&&file.resourceName!==declared.resourceName)throw Error('Imported native function binding differs from qualification');}
+      }
     }
     for(const item of qualification.qualificationEvidence)if(await sha256(path.resolve(root,item.file))!==item.sha256)throw Error('Qualification evidence checksum mismatch');
     if(record.status==='passed'){const proof=await readCacheEvidence(record.cacheEvidence.proofFile,record.cacheEvidence);if(proof.proofSHA!==record.cacheEvidence.proofSHA)throw Error('Cache proof checksum differs from imported record');if(JSON.stringify(proof)!==JSON.stringify(record.cacheEvidence))throw Error('Imported cache evidence differs from its immutable proof');}
+    await verifyImportedPredecessor(record);
     for(const item of record.evidence) { if(!item.file||!item.sha256) throw Error('Evidence requires file and SHA256'); if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Evidence checksum mismatch: '+item.file); }
     if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='oci-compressed') {
       const selected=qualification.artifacts.images[0];
       if(record.artifacts.name!==selected.name||record.artifacts.platform!==(qualification.artifacts.platform||'linux/amd64')||selected.expectedDigest&&record.artifacts.manifestDigest!==selected.expectedDigest)throw Error('Imported OCI image/platform/digest differs from qualification');
       const {verifyImportedOci}=await import('./sizes.mjs');await verifyImportedOci(record);
+    }
+    if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='lambda-zip') {
+      const {verifyImportedLambda}=await import('./sizes.mjs');await verifyImportedLambda(record);
     }
     if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='provider-native') {
       const {verifyImportedNativePackage}=await import('./lib.mjs');await verifyImportedNativePackage(record);
