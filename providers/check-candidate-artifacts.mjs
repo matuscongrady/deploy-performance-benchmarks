@@ -23,6 +23,20 @@ try {
  const observed=await observeCandidateArtifacts(options);assert.equal(observed.files.length,2);assert.equal(observed.files[0].name,'product-lookup');assert.equal(observed.files[0].resourceName,'productLookup');assert.equal(observed.inputs[0].entry,'app/handlers/product-lookup.mjs');assert.equal(observed.files[0].bytes,(await stat(path.join(project,zipPath('function')))).size);
  const contract={...spec,nativeManifest:{argv:[process.execPath,observer,'--qualified','qualification.json']}};
  const collected=await collectArtifacts(contract,project,attempt);assert.equal(collected.proofs.length,1);assert.equal(collected.bytes,collected.files.reduce((n,f)=>n+f.bytes,0));assert.deepEqual(JSON.parse(await readFile(path.join(project,collected.proofs[0].path),'utf8')),collected.nativeManifest);
+ // Current native deployments may use index.default; preserve the exact qualified export.
+ const originalFunctionBytes=await readFile(path.join(project,zipPath('function')));
+ const defaultSpec={...spec,files:[{...spec.files[0],handler:'index.default'},spec.files[1]]};
+ const nativeDefault=spawnSync('python3',['-c','import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],"w"); z.writestr("index.js","exports.default=()=>({revision: \'current\'})"); z.close()',path.join(project,zipPath('function'))],{encoding:'utf8'});assert.equal(nativeDefault.status,0,nativeDefault.stderr);await utimes(path.join(project,zipPath('function')),fresh,fresh);
+ await writeFile(path.join(project,'qualification.json'),JSON.stringify(defaultSpec));
+ const defaultCollected=await collectArtifacts({...defaultSpec,nativeManifest:contract.nativeManifest},project,attempt);
+ assert.equal(defaultCollected.nativeManifest.files[0].handler,'index.default');assert.equal(defaultCollected.nativeManifest.files[0].module,'index.js');assert.equal(defaultCollected.nativeManifest.files[0].resourceName,'productLookup');assert.equal(defaultCollected.files.length,2);assert.equal(defaultCollected.bytes,defaultCollected.files.reduce((n,f)=>n+f.bytes,0));
+ // The CLI must reject arbitrary exports and another module, even with real current ZIPs.
+ for(const invalid of [{handler:'index.unqualified'},{handler:'index.default',module:'different.js'}]){
+  await writeFile(path.join(project,'qualification.json'),JSON.stringify({...defaultSpec,files:[{...defaultSpec.files[0],...invalid},defaultSpec.files[1]]}));
+  await assert.rejects(observeCandidateArtifacts(options),/Qualified native handler/);
+  await assert.rejects(collectArtifacts({...defaultSpec,nativeManifest:contract.nativeManifest},project,attempt),/observer failed/);
+ }
+ await writeFile(path.join(project,'qualification.json'),JSON.stringify(spec));await writeFile(path.join(project,zipPath('function')),originalFunctionBytes);await utimes(path.join(project,zipPath('function')),fresh,fresh);
  // A real CLI producer must reject stale files, omitted layers and another current invocation.
  await utimes(path.join(project,zipPath('function')),old,old);await assert.rejects(collectArtifacts(contract,project,attempt),/observer failed/);await utimes(path.join(project,zipPath('function')),fresh,fresh);
  await rm(path.join(project,zipPath('layer')));await assert.rejects(observeCandidateArtifacts(options),/archive count/);await archive(zipPath('layer'));
@@ -34,5 +48,5 @@ try {
  const record={...attempt,kind:'package',status:'passed',artifacts:collected,evidence};assert.equal((await verifyImportedLambda(record,{base:project})).bytes,collected.bytes);
  await assert.rejects(verifyImportedLambda({...record,runId:'forged-current'},{base:project}),/current runId/);
  await assert.rejects(verifyImportedLambda({...record,artifacts:{...collected,proofs:[]}},{base:project}),/exactly one retained/);
- console.log('Current native ZIP/layer bindings, CLI observation, stale/ambiguous/missing archive rejection and immutable import proof checks passed. No cloud calls.');
+ console.log('Qualified index.handler/index.default native ZIP/layer bindings, real CLI observation, invalid export/module rejection and immutable current-artifact import checks passed. No cloud calls.');
 } finally {await rm(project,{recursive:true,force:true});}

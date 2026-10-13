@@ -12,7 +12,7 @@ export async function observeCandidateArtifacts({project=process.cwd(),qualified
   const qualification=JSON.parse(await readFile(qualifiedFile,'utf8')),spec=qualification.artifacts||qualification;
   if(spec.qualified!==true||spec.format!=='lambda-zip'||!Array.isArray(spec.files)||![1,5,25].includes(spec.functionCount))throw Error('Supply the qualified complete Lambda binding contract');
   const functions=spec.files.filter(f=>(f.role||'function')==='function'),layers=spec.files.filter(f=>f.role==='layer');
-  if(functions.length!==spec.functionCount||new Set(functions.map(f=>f.name)).size!==functions.length||functions.some(f=>f.handler!=='index.handler'||f.module!=='index.js'))throw Error('Qualified native handler or selected function count differs');
+  if(functions.length!==spec.functionCount||new Set(functions.map(f=>f.name)).size!==functions.length||functions.some(f=>!['index.handler','index.default'].includes(f.handler)||f.module!=='index.js'))throw Error('Qualified native handler or selected function count differs');
   const configPath=await inside(project,configFile),configBytes=await readFile(configPath),config=JSON.parse(configBytes);
   const resources=Object.entries(config.resources||{}).filter(([,r])=>r.type==='function');
   if(resources.length!==functions.length)throw Error('Current native config has another function selection');
