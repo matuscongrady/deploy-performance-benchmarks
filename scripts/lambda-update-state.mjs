@@ -100,14 +100,15 @@ export function compareLambdaUpdate(before,after,{provider,names}) {
 export function sanitizePulumiEvents(text) {
   const events=text.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
   const summary=events.filter(e=>e.summaryEvent).map(e=>e.summaryEvent);
-  if(summary.length!==1||summary[0].maybeCorrupt===true)throw Error('SST event history needs one successful, non-corrupt summary');
+  if(summary.length!==1||summary[0].maybeCorrupt!==false||summary[0].isPreview!==false)throw Error('SST event history needs one successful, non-preview, non-corrupt summary');
+  if(events.some(e=>e.resOpFailedEvent||e.errorEvent||e.diagnosticEvent?.severity==='error'))throw Error('SST event history contains a native resource/engine failure');
   const operations=events.filter(e=>e.resourcePreEvent||e.resOutputsEvent).map(e=>{
     const m=(e.resourcePreEvent||e.resOutputsEvent).metadata;
-    return {sequence:e.sequence,op:m.op,urn:m.urn,type:m.type,id:m.new?.id||m.old?.id||null};
+    return {sequence:e.sequence,timestamp:e.timestamp,op:m.op,urn:m.urn,type:m.type,id:m.new?.id||m.old?.id||null};
   });
-  if(!operations.length||operations.some(o=>!['same','update','read','read-discard'].includes(o.op)))throw Error('SST update created, replaced, deleted or used an unknown resource operation');
+  if(!operations.length||operations.some(o=>!['same','update','read'].includes(o.op)))throw Error('SST update created, replaced, deleted or used an unknown resource operation');
   const changes=summary[0].resourceChanges||{};
-  if(Object.entries(changes).some(([op,count])=>count>0&&!['same','update','read','read-discard'].includes(op)))throw Error('SST summary includes resource creation/replacement/deletion');
+  if(Object.entries(changes).some(([op,count])=>!Number.isInteger(count)||count<0||count>0&&!['same','update','read'].includes(op)))throw Error('SST summary includes invalid counts or resource creation/replacement/deletion');
   return {operations,resourceChanges:changes};
 }
 export function validateSstUpdateMetadata(metadata,id,runId) {
@@ -163,7 +164,7 @@ export function validateLambdaAdmission(record) {
   if(record.provider==='candidate'){
     if(a.path.predecessor!==a.before.pathState?.version||a.path.version!==a.after.pathState?.version||a.path.version===a.path.predecessor||a.path.target?.stackId!==a.after.cloudformation?.stackId||a.path.target?.accountId!==a.accountId||a.path.target?.region!==a.region||!isDeepStrictEqual(a.path.code?.map(c=>c.functionName).sort(),a.after.functions.map(f=>f.functionName).sort())||a.path.code.some(c=>c.codeSHA256!==a.after.functions.find(f=>f.functionName===c.functionName).codeSHA256))throw Error('Candidate admission differs from its observed fast release');
   }
-  if(record.provider==='sst'&&(a.path.runId!==record.runId||a.path.command!=='deploy'||!a.path.timeCompleted||!Array.isArray(a.path.operations)||!a.path.operations.length||a.path.operations.some(o=>!['same','update','read','read-discard'].includes(o.op))))throw Error('SST admission differs from its successful native resource update');
+  if(record.provider==='sst'&&(a.path.runId!==record.runId||a.path.command!=='deploy'||!a.path.timeCompleted||!Array.isArray(a.path.operations)||!a.path.operations.length||a.path.operations.some(o=>!['same','update','read'].includes(o.op))||Object.entries(a.path.resourceChanges||{}).some(([op,count])=>!Number.isInteger(count)||count<0||count>0&&!['same','update','read'].includes(op))))throw Error('SST admission differs from its successful native resource update');
   if(record.provider==='cdk'&&(!isDeepStrictEqual(a.path.ignoredChanges,[])||!isDeepStrictEqual([...a.path.functions].sort(),[...names].sort())))throw Error('CDK admission must cover every function without ignored changes');
   if(record.provider==='serverless'&&(!isDeepStrictEqual(a.path.functions?.map(f=>f.function).sort(),[...names].sort())||a.path.functions.some(f=>!f.success||f.exitCode!==0)))throw Error('Serverless admission must include every successful native child');
   if(!a.proof?.file||!/^[a-f0-9]{64}$/.test(a.proof.sha256||'')||!record.evidence.some(e=>isDeepStrictEqual(e,a.proof)))throw Error('Lambda update admission requires an immutable proof sidecar');
