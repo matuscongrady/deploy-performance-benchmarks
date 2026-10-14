@@ -51,7 +51,7 @@ try {
     let baseline,componentsBefore,rolloutBaseline,lambdaBaseline,lambdaUpdateAdmission;
     if(needsLambdaUpdate(scenario)){
       if(provider==='sst'&&qualification.nativeAppName!==plan.appName)throw Error('Qualified SST Lambda app differs from the generated project');
-      lambdaBaseline=await captureLambdaState(qualification,provider,command);
+      lambdaBaseline=await captureLambdaState(qualification,provider,command,{project:plan.cwd});
     }
     if(needsSstRollout(scenario,provider)){const {verifyExistingApplication}=await import('./existing-app.mjs');await verifyExistingApplication({q:qualification,provider,appName:plan.appName,region:qualification.environment.region});}
     if(scenario.fixture==='five-services'){const {captureComponents}=await import('./component-state.mjs');componentsBefore=await captureComponents(qualification.componentSnapshots);}
@@ -129,7 +129,7 @@ try {
     }
     let reuse,rolloutAdmission;
     if(status==='passed'&&lambdaBaseline)try{
-      const after=await captureLambdaState(qualification,provider,command);
+      const after=await captureLambdaState(qualification,provider,command,{project:plan.cwd});
       const compared=compareLambdaUpdate(lambdaBaseline,after,{provider,names:qualification.probes.map(p=>p.name)});
       const nativePath=await captureLambdaPath(qualification,provider,{before:lambdaBaseline,after,runId,logs,runCommand:command});
       const nativeLogEvidence=[];
