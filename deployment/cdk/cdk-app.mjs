@@ -1,0 +1,17 @@
+import {App,Stack,CfnOutput,Duration,Tags} from 'aws-cdk-lib';
+import {Runtime} from 'aws-cdk-lib/aws-lambda';
+import {NodejsFunction} from 'aws-cdk-lib/aws-lambda-nodejs';
+import {resolve} from 'node:path';
+const app=new App(); const stack=new Stack(app,"bench-commerce-lambda-5", {env:{region:"eu-west-1"}});
+if(process.env.BENCH_BUILD_TIMING_FILE){const {writeBuildStart}=await import(process.env.BENCH_BUILD_STAGE_HELPER);await writeBuildStart('cdk');}
+const f_report=new NodejsFunction(stack,"report",{entry:resolve("../../fixtures/lambdas/handlers/report.mjs"),handler:'handler',depsLockFilePath:resolve('../../fixtures/lambdas/package-lock.json'),projectRoot:resolve('../../fixtures/lambdas'),runtime:Runtime.NODEJS_22_X,functionName:"bench-commerce-lambda-5-bench-report",memorySize:512,timeout:Duration.seconds(30),bundling:{minify:true,sourceMap:false,nodeModules:["pdfkit"]}});
+new CfnOutput(stack,"reportArn",{value:f_report.functionArn});
+const f_product_lookup=new NodejsFunction(stack,"product-lookup",{entry:resolve("../../fixtures/lambdas/handlers/product-lookup.mjs"),handler:'handler',depsLockFilePath:resolve('../../fixtures/lambdas/package-lock.json'),projectRoot:resolve('../../fixtures/lambdas'),runtime:Runtime.NODEJS_22_X,functionName:"bench-commerce-lambda-5-bench-product-lookup",memorySize:512,timeout:Duration.seconds(30),bundling:{minify:true,sourceMap:false,nodeModules:[]}});
+new CfnOutput(stack,"productlookupArn",{value:f_product_lookup.functionArn});
+const f_cart_pricing=new NodejsFunction(stack,"cart-pricing",{entry:resolve("../../fixtures/lambdas/handlers/cart-pricing.mjs"),handler:'handler',depsLockFilePath:resolve('../../fixtures/lambdas/package-lock.json'),projectRoot:resolve('../../fixtures/lambdas'),runtime:Runtime.NODEJS_22_X,functionName:"bench-commerce-lambda-5-bench-cart-pricing",memorySize:512,timeout:Duration.seconds(30),bundling:{minify:true,sourceMap:false,nodeModules:[]}});
+new CfnOutput(stack,"cartpricingArn",{value:f_cart_pricing.functionArn});
+const f_create_order=new NodejsFunction(stack,"create-order",{entry:resolve("../../fixtures/lambdas/handlers/create-order.mjs"),handler:'handler',depsLockFilePath:resolve('../../fixtures/lambdas/package-lock.json'),projectRoot:resolve('../../fixtures/lambdas'),runtime:Runtime.NODEJS_22_X,functionName:"bench-commerce-lambda-5-bench-create-order",memorySize:512,timeout:Duration.seconds(30),bundling:{minify:true,sourceMap:false,nodeModules:[]}});
+new CfnOutput(stack,"createorderArn",{value:f_create_order.functionArn});
+const f_notification=new NodejsFunction(stack,"notification",{entry:resolve("../../fixtures/lambdas/handlers/notification.mjs"),handler:'handler',depsLockFilePath:resolve('../../fixtures/lambdas/package-lock.json'),projectRoot:resolve('../../fixtures/lambdas'),runtime:Runtime.NODEJS_22_X,functionName:"bench-commerce-lambda-5-bench-notification",memorySize:512,timeout:Duration.seconds(30),bundling:{minify:true,sourceMap:false,nodeModules:[]}});
+new CfnOutput(stack,"notificationArn",{value:f_notification.functionArn});
+app.synth();

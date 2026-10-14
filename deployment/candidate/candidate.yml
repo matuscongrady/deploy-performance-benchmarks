@@ -1,0 +1,83 @@
+{
+  "projectName": "bench-commerce-lambda-5",
+  "resources": {
+    "report": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/report.mjs",
+            "nodeVersion": 22,
+            "dependenciesToExcludeFromBundle": [
+              "pdfkit"
+            ]
+          }
+        }
+      }
+    },
+    "productLookup": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/product-lookup.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "cartPricing": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/cart-pricing.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "createOrder": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/create-order.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "notification": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/notification.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    }
+  }
+}

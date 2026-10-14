@@ -1,0 +1,64 @@
+[
+  {
+    "dev": false,
+    "functionID": "report",
+    "handler": "../../fixtures/lambdas/handlers/report.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {
+        "pdfkit": "*"
+      }
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "product-lookup",
+    "handler": "../../fixtures/lambdas/handlers/product-lookup.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "cart-pricing",
+    "handler": "../../fixtures/lambdas/handlers/cart-pricing.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "create-order",
+    "handler": "../../fixtures/lambdas/handlers/create-order.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  },
+  {
+    "dev": false,
+    "functionID": "notification",
+    "handler": "../../fixtures/lambdas/handlers/notification.handler",
+    "runtime": "nodejs22.x",
+    "links": {},
+    "copyFiles": [],
+    "properties": {
+      "architecture": "x86_64",
+      "install": {}
+    }
+  }
+]
