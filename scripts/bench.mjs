@@ -9,7 +9,7 @@ import {verifyImportedPredecessor} from './git-predecessor.mjs';
 import {measureDeployment} from './deployment-timer.mjs';
 import {needsSstRollout,admitSstRollout,captureSstRolloutBaseline} from './sst-rollout.mjs';
 import {captureBuildInputs,collectBuildTiming,verifyImportedBuildTiming,buildClock} from './build-timing.mjs';
-import {needsLambdaUpdate,captureLambdaState,compareLambdaUpdate,captureLambdaPath,verifyImportedLambdaAdmission} from './lambda-update-state.mjs';
+import {needsLambdaUpdate,captureLambdaState,compareLambdaUpdate,captureLambdaPath,captureSstHistory,verifyImportedLambdaAdmission} from './lambda-update-state.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
 const [operation,id,provider]=positional;
 try {
@@ -127,15 +127,22 @@ try {
       buildTiming={required:true,verified:false,campaignId:qualification.buildTiming.campaignId,scope:qualification.buildTiming.scope,clock:buildClock,producer:qualification.buildTiming.producer,configurationSha256:buildInput.manifest.configurationSha256,instrumentationSha256:buildInput.manifest.instrumentationSha256,...qualification.buildTiming.nativeMethodSha256&&{nativeMethodSha256:qualification.buildTiming.nativeMethodSha256},...qualification.buildTiming.identitySession&&{identitySession:qualification.buildTiming.identitySession},inputEvidence:{file:path.relative(root,buildInput.file),sha256:buildInput.sha256}};
       if(status==='passed')try{buildTiming=await collectBuildTiming({spec:qualification.buildTiming,identity:buildIdentity,input:buildInput,nativeFile:buildNativeFile,operation:operationTiming,commands:logs.filter(l=>l.phase!=='verification-outside-timer'),artifacts,base:root});}catch(e){status='unqualified';failure=e.message;buildTiming.failure=e.message;}
     }
-    let reuse,rolloutAdmission;
+    let reuse,rolloutAdmission,lambdaAfter,lambdaNativePath;
     if(status==='passed'&&lambdaBaseline)try{
-      const after=await captureLambdaState(qualification,provider,command,{project:plan.cwd});
+      const after=lambdaAfter=await captureLambdaState(qualification,provider,command,{project:plan.cwd});
+      const nativePath=lambdaNativePath=await captureLambdaPath(qualification,provider,{before:lambdaBaseline,after,runId,logs,runCommand:command});
       const compared=compareLambdaUpdate(lambdaBaseline,after,{provider,names:qualification.probes.map(p=>p.name)});
-      const nativePath=await captureLambdaPath(qualification,provider,{before:lambdaBaseline,after,runId,logs,runCommand:command});
       const nativeLogEvidence=[];
       for(const log of logs)for(const file of [log.stdoutFile,log.stderrFile])nativeLogEvidence.push({file:path.relative(root,file),sha256:await sha256(file)});
       lambdaUpdateAdmission={schemaVersion:1,...compared,provider,runId,sourceCommit:git.stdout.trim(),appId,stage:flags.stage||'bench',accountId:qualification.environment.accountId,region:qualification.environment.region,before:lambdaBaseline,after,path:nativePath,nativeLogEvidence};
-    }catch(e){status='failed';failure=e.message;lambdaUpdateAdmission={verified:false,outsideReadinessTimer:true,before:lambdaBaseline,failure:e.message};}
+    }catch(e){status='failed';failure=e.message;lambdaUpdateAdmission={verified:false,outsideReadinessTimer:true,before:lambdaBaseline,...lambdaAfter&&{after:lambdaAfter},...(e.lambdaPathObservation||lambdaNativePath)&&{path:e.lambdaPathObservation||lambdaNativePath},failure:e.message};}
+    // Failed native completion or a failed function observation must not discard
+    // SST's engine history. This safe projection is evidence, never admission.
+    if(status!=='passed'&&lambdaBaseline&&provider==='sst'&&!lambdaUpdateAdmission?.path){
+      let nativeHistory;
+      try{nativeHistory=await captureSstHistory(qualification,{before:lambdaBaseline,runId,runCommand:command});}catch(e){nativeHistory=e.lambdaPathObservation;}
+      if(nativeHistory)lambdaUpdateAdmission={...lambdaUpdateAdmission,verified:false,outsideReadinessTimer:true,before:lambdaBaseline,failure,path:nativeHistory};
+    }
     if(status==='passed'&&needsSstRollout(scenario,provider)){try{rolloutAdmission=await admitSstRollout(qualification,{baseline:rolloutBaseline});}catch(e){status='failed';failure=e.message;rolloutAdmission=e.rolloutAdmission;}}
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
@@ -188,7 +195,7 @@ try {
     await verifyImportedPredecessor(record);
     for(const item of record.evidence) { if(!item.file||!item.sha256) throw Error('Evidence requires file and SHA256'); if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Evidence checksum mismatch: '+item.file); }
     await verifyImportedBuildTiming(record,{base:root});
-    await verifyImportedLambdaAdmission(record,{base:root});
+    await verifyImportedLambdaAdmission(record,{base:root,qualification});
     if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='oci-compressed') {
       const selected=qualification.artifacts.images[0];
       if(record.artifacts.name!==selected.name||record.artifacts.platform!==(qualification.artifacts.platform||'linux/amd64')||selected.expectedDigest&&record.artifacts.manifestDigest!==selected.expectedDigest)throw Error('Imported OCI image/platform/digest differs from qualification');

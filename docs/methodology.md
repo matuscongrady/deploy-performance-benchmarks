@@ -82,6 +82,8 @@ The timer measures first verified business readiness. Acceptance also requires t
 
 Use the fastest supported cloud update path for the tested source edit. The candidate uses automatic fast deployment/hotswap; CDK uses hotswap; Serverless uses function deployment; SST uses its cloud deploy command. Local SST Live execution is not a deployed cloud service. If the fastest path uses different rollout guarantees, development-only behavior or infrastructure drift, disclose it beside the chart. Do not describe these paths as equivalent production rollouts.
 
+For Lambda updates, retain the function identities, configuration hashes, code hashes and layers before and after the native command. SST 4.17.2 replaces its hash-named code and source-map upload objects as part of an ordinary code update. Those replacements are allowed only for the selected functions in the exact app/stage and qualified asset bucket. The observer checks bucket ownership and region outside timing, matches both object keys to the observed Lambda ZIP hashes, and checks the complete native replacement history and logical summary. Function, role, unrelated object or infrastructure replacements still disqualify the attempt. A failed history is retained with only operation metadata and whitelisted bucket/key fields; raw native inputs, outputs and error messages are excluded.
+
 ## Fresh and repeat CI
 
 “Fresh CI” means an existing application updated through an ephemeral runner with no restored dependency/build cache, or a hosted platform build with a documented fresh-cache control. It does not mean creating the application for the first time. A fresh VM can restore caches; save both runner identity and cache logs.

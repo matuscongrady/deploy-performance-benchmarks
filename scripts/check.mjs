@@ -10,6 +10,7 @@ import {probe} from './probe.mjs';
 import {waitForPipeline} from './pipeline-completion.mjs';
 import {compressedImage} from './oci-size.mjs';
 import {checkQualification} from './qualification.mjs';
+import './check-cache-cli.mjs';
 import {compareUnchanged} from './component-state.mjs';
 import {collectArtifacts} from './sizes.mjs';
 import {validateExistingApplication,verifyExistingApplication} from './existing-app.mjs';

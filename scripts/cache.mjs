@@ -12,7 +12,7 @@ try {
  const qualification=flags.qualification?await json(flags.qualification):null;
  const defaults={serverless:['.serverless'],cdk:['cdk.out','package-artifacts'],sst:['.sst/artifacts','package-artifacts']};
  const paths=qualification?.cacheControl?.localPaths||defaults[provider];
- if(!Array.isArray(paths)||(!paths.length&&qualification?.cacheControl?.nativeClean?.verified!==true))throw Error('Provider cache paths/native control have not been qualified');
+ if(!Array.isArray(paths)||(!paths.length&&series!=='cli-existing-cache'&&qualification?.cacheControl?.nativeClean?.verified!==true))throw Error('Provider cache paths/native control have not been qualified');
  const file=path.join(root,'.work/evidence',runId,provider,'cache-control.json');await refuseExistingResult(file);
  const record={schemaVersion:1,mode:'local',provider,scenario:scenario.id,appId,runId,sourceCommit,series,capturedAt:new Date().toISOString(),paths:[],dependenciesRetained:true,remoteCachesCleared:false,dockerCacheCleared:false,reuseObserved:'unknown',nativeClean:qualification?.cacheControl?.nativeClean};
  if(series==='cached-source-edit'){
