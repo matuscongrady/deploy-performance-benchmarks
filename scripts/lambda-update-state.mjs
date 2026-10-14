@@ -44,11 +44,12 @@ export function sanitizeLambdaState(data,resource,q,provider) {
   if(c.State!=='Active'||c.LastUpdateStatus!=='Successful'||c.Runtime!=='nodejs22.x'||c.MemorySize!==512||c.Timeout!==30)throw Error('Lambda must be active with the qualified runtime/resources: '+resource.name);
   // All stable configuration, including environment values and role, participates
   // in the hash. Plaintext environment values and signed download URLs are omitted.
-  const volatile=new Set(['FunctionArn','FunctionName','CodeSize','CodeSha256','LastModified','RevisionId','State','StateReason','StateReasonCode','LastUpdateStatus','LastUpdateStatusReason','LastUpdateStatusReasonCode','Layers']);
+  const volatile=new Set(['FunctionArn','FunctionName','CodeSize','CodeSha256','LastModified','RevisionId','State','StateReason','StateReasonCode','LastUpdateStatus','LastUpdateStatusReason','LastUpdateStatusReasonCode','Layers','RuntimeVersionConfig']);
   const configuration=Object.fromEntries(Object.entries(c).filter(([key])=>!volatile.has(key)));
-  return {name:resource.name,arn:c.FunctionArn,functionName:c.FunctionName,codeSHA256:c.CodeSha256,layers:(c.Layers||[]).map(l=>l.Arn),configurationSHA256:hash(configuration),ownerTagKey:ownerKey,owner:q.nativeBindings.owner,state:c.State,lastUpdateStatus:c.LastUpdateStatus,runtime:c.Runtime,memoryMB:c.MemorySize,timeoutSeconds:c.Timeout};
+  if(c.RuntimeVersionConfig?.Error)throw Error('Lambda reports a managed-runtime error: '+resource.name);
+  return {name:resource.name,arn:c.FunctionArn,functionName:c.FunctionName,codeSHA256:c.CodeSha256,layers:(c.Layers||[]).map(l=>l.Arn),configurationSHA256:hash(configuration),runtimeVersionArn:c.RuntimeVersionConfig?.RuntimeVersionArn||null,ownerTagKey:ownerKey,owner:q.nativeBindings.owner,state:c.State,lastUpdateStatus:c.LastUpdateStatus,runtime:c.Runtime,memoryMB:c.MemorySize,timeoutSeconds:c.Timeout};
 }
-export async function captureLambdaState(q,provider,runCommand) {
+export async function captureLambdaState(q,provider,runCommand,{project}={}) {
   validateLambdaBindings(q,provider);
   async function aws(service,operation,...args) {
     const result=await runCommand(['aws',service,operation,...args,'--region',q.environment.region,'--output','json','--no-cli-pager'],{timeoutMs:60000});
@@ -83,7 +84,18 @@ export async function captureLambdaState(q,provider,runCommand) {
     const data=await aws('s3api','list-objects-v2','--bucket',q.nativeStateBucket,'--prefix',prefix,'--expected-bucket-owner',q.environment.accountId);
     pathState={eventKeys:(data.Contents||[]).map(o=>o.Key).sort()};
   }
-  return {observedAt:new Date().toISOString(),functions,...cloudformation&&{cloudformation},...pathState&&{pathState}};
+  let nativeTemplate;
+  if(provider==='cdk'&&project){
+    const template=JSON.parse(await readFile(path.join(project,'cdk.out',q.nativeStackName+'.template.json'),'utf8'));
+    delete template.Metadata;
+    const selected=new Set(functions.map(f=>f.functionName));
+    for(const resource of Object.values(template.Resources||{})){
+      delete resource.Metadata;
+      if(resource.Type==='AWS::Lambda::Function'&&selected.has(resource.Properties?.FunctionName))for(const field of ['S3Bucket','S3Key','S3ObjectVersion','ZipFile'])delete resource.Properties.Code?.[field];
+    }
+    nativeTemplate={stableSHA256:hash(template),allowedChanges:'Selected Lambda Code upload fields and generated asset metadata only'};
+  }
+  return {observedAt:new Date().toISOString(),functions,...cloudformation&&{cloudformation},...pathState&&{pathState},...nativeTemplate&&{nativeTemplate}};
 }
 export function compareLambdaUpdate(before,after,{provider,names}) {
   for(const observation of [before,after])if(!Array.isArray(observation?.functions)||!isDeepStrictEqual(observation.functions.map(f=>f.name).sort(),[...names].sort())||new Set(observation.functions.map(f=>f.name)).size!==names.length)throw Error('Lambda update proof is missing selected functions');
@@ -137,7 +149,8 @@ export async function captureLambdaPath(q,provider,{before,after,runId,logs,runC
   if(provider==='cdk'){
     const output=outputs.join('\n').replace(/\x1b\[[0-9;]*m/g,'');
     if(!logs.some(l=>l.argv.includes('--hotswap'))||! /hotswapping resources:/i.test(output)||/non-hotswappable changes were found|no hotswappable changes/i.test(output))throw Error('CDK native command did not prove a complete hotswap');
-    return {kind:'cdk-hotswap',ignoredChanges:[],functions:after.functions.map(f=>f.name)};
+    if(q.toolVersion?.reported!=='2.1145.0'||!before.nativeTemplate?.stableSHA256||before.nativeTemplate.stableSHA256!==after.nativeTemplate?.stableSHA256)throw Error('CDK needs its pinned native hotswap and unchanged non-code template');
+    return {kind:'cdk-hotswap',ignoredChanges:[],functions:after.functions.map(f=>f.name),nonCodeTemplateSHA256:after.nativeTemplate.stableSHA256};
   }
   if(provider==='serverless'){
     const summaries=outputs.flatMap(text=>text.split('\n').flatMap(line=>{try{const v=JSON.parse(line);return Array.isArray(v.functions)&&Number.isInteger(v.concurrency)?[v]:[];}catch{return [];}}));
@@ -155,7 +168,8 @@ export function validateLambdaAdmission(record) {
   if(a?.verified!==true||a.outsideReadinessTimer!==true||a.schemaVersion!==1)throw Error('Lambda deployments require observed fast-update admission');
   for(const key of ['provider','runId','sourceCommit','appId','stage'])if(a[key]!==record[key])throw Error('Lambda update admission differs from '+key);
   if(a.accountId!==record.environment.accountId||a.region!==record.environment.region)throw Error('Lambda update admission differs from account/region');
-  if(Date.parse(a.before?.observedAt)>Date.parse(record.startedAt)||!Number.isFinite(Date.parse(a.before?.observedAt))||!Number.isFinite(Date.parse(a.after?.observedAt))||Date.parse(a.after.observedAt)<Date.parse(record.nativeCompletion?.finishedAt||record.pipelineCompletion?.verifiedAt))throw Error('Lambda update observations must surround native completion outside timing');
+  const started=Date.parse(record.startedAt),completed=Date.parse(record.nativeCompletion?.finishedAt||record.pipelineCompletion?.verifiedAt);
+  if(!Number.isFinite(started)||!Number.isFinite(completed)||Date.parse(a.before?.observedAt)>started||!Number.isFinite(Date.parse(a.before?.observedAt))||!Number.isFinite(Date.parse(a.after?.observedAt))||Date.parse(a.after.observedAt)<completed)throw Error('Lambda update observations must surround native completion outside timing');
   const names=record.readiness.observations.map(o=>o.name);
   const compared=compareLambdaUpdate(a.before,a.after,{provider:record.provider,names});
   if(!isDeepStrictEqual(compared.updates,a.updates))throw Error('Lambda update summary differs from native observations');
@@ -165,7 +179,7 @@ export function validateLambdaAdmission(record) {
     if(a.path.predecessor!==a.before.pathState?.version||a.path.version!==a.after.pathState?.version||a.path.version===a.path.predecessor||a.path.target?.stackId!==a.after.cloudformation?.stackId||a.path.target?.accountId!==a.accountId||a.path.target?.region!==a.region||!isDeepStrictEqual(a.path.code?.map(c=>c.functionName).sort(),a.after.functions.map(f=>f.functionName).sort())||a.path.code.some(c=>c.codeSHA256!==a.after.functions.find(f=>f.functionName===c.functionName).codeSHA256))throw Error('Candidate admission differs from its observed fast release');
   }
   if(record.provider==='sst'&&(a.path.runId!==record.runId||a.path.command!=='deploy'||!a.path.timeCompleted||!Array.isArray(a.path.operations)||!a.path.operations.length||a.path.operations.some(o=>!['same','update','read'].includes(o.op))||Object.entries(a.path.resourceChanges||{}).some(([op,count])=>!Number.isInteger(count)||count<0||count>0&&!['same','update','read'].includes(op))))throw Error('SST admission differs from its successful native resource update');
-  if(record.provider==='cdk'&&(!isDeepStrictEqual(a.path.ignoredChanges,[])||!isDeepStrictEqual([...a.path.functions].sort(),[...names].sort())))throw Error('CDK admission must cover every function without ignored changes');
+  if(record.provider==='cdk'&&(!isDeepStrictEqual(a.path.ignoredChanges,[])||!isDeepStrictEqual([...a.path.functions].sort(),[...names].sort())||record.toolVersion.reported!=='2.1145.0'||!a.before.nativeTemplate?.stableSHA256||a.before.nativeTemplate.stableSHA256!==a.after.nativeTemplate?.stableSHA256||a.path.nonCodeTemplateSHA256!==a.after.nativeTemplate.stableSHA256))throw Error('CDK admission must cover every function without ignored changes');
   if(record.provider==='serverless'&&(!isDeepStrictEqual(a.path.functions?.map(f=>f.function).sort(),[...names].sort())||a.path.functions.some(f=>!f.success||f.exitCode!==0)))throw Error('Serverless admission must include every successful native child');
   if(!a.proof?.file||!/^[a-f0-9]{64}$/.test(a.proof.sha256||'')||!record.evidence.some(e=>isDeepStrictEqual(e,a.proof)))throw Error('Lambda update admission requires an immutable proof sidecar');
   if(!Array.isArray(a.nativeLogEvidence)||!a.nativeLogEvidence.length||a.nativeLogEvidence.some(e=>!record.evidence.some(item=>isDeepStrictEqual(item,e))))throw Error('Lambda native command logs must be bound to admission');
