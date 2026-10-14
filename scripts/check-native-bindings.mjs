@@ -25,9 +25,10 @@ try {
    const previous=process.env.CANDIDATE_AWS_ACCOUNT;process.env.CANDIDATE_AWS_ACCOUNT='commerce-test-account';
    try {
     const bound=await prepare(options);
-    for(const operation of ['setup','package','update','cleanup'])for(const argv of bound.commands[operation]){
+    for(const operation of ['setup','update','cleanup'])for(const argv of bound.commands[operation]){
      const index=argv.indexOf('--awsAccount');assert.ok(index>=0);assert.equal(argv[index+1],'commerce-test-account');assert.equal(argv.filter(v=>v==='--awsAccount').length,1);
     }
+    assert.ok(!bound.commands.package[0].includes('--awsAccount'));
     assert.ok(!bound.commands.update[0].includes('--fullDeploy'));
    }finally{if(previous===undefined)delete process.env.CANDIDATE_AWS_ACCOUNT;else process.env.CANDIDATE_AWS_ACCOUNT=previous;}
   }
