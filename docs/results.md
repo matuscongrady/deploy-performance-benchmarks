@@ -9,7 +9,9 @@ Required fields:
 | `scenario`, `provider`, `runId`, `appId`, `stage` | Exact test, tool, unique attempt and existing application/stage |
 | `sourceCommit` | Full 40-character Git SHA of the tested source |
 | `kind`, `status` | `package` or `deploy`; `passed`, `failed` or `unqualified` |
-| `startedAt`, `finishedAt`, `durationMs` | Observed timer boundaries and elapsed milliseconds |
+| `startedAt`, `finishedAt`, `durationMs` | Separate observed UTC labels and elapsed milliseconds; new local elapsed values come from monotonic anchors |
+| `timing` | Local monotonic start/end nanoseconds, Linux boot ID, clocksource, UTC observations, clock-quality diagnostics and immutable proof |
+| `attemptedRecord`, `validationFailure` | Full immutable record saved before admission, and the rejection reason when admission fails |
 | `commandDurationMs` | Optional native command elapsed time; not deployment readiness |
 | `buildTiming` | Reviewed Lambda build interval with original marker/input evidence; absent in historical operation-only records |
 | `operationTiming` | Shared monotonic envelope of the unchanged complete recipe clock, when a matched build clock is measured |
@@ -23,6 +25,16 @@ Required fields:
 | `artifacts` | Packaging’s complete artifact set, format, sizes and hashes |
 
 ## Two Lambda packaging times
+
+New local runs use the same Linux monotonic clock for every provider. `timing.start.monotonicNs` and `timing.end.monotonicNs` are decimal nanoseconds from `process.hrtime.bigint()`. `durationMs` must equal their difference divided by one million. The UTC values in `startedAt` and `finishedAt` are separately observed labels; they can move backwards when the system clock is corrected. They do not define the interval. `timing.quality.wallOffsetChangeMs` retains the difference between observed wall elapsed time and the monotonic interval. No tolerance increase or wall-time correction is used to admit a duration.
+
+The immutable clock sidecar binds the test, provider, attempt, source SHA, application and stage to those original anchors, boot ID and clocksource. Imports compare its checksum and exact contents. Local readiness and post-completion probes also record monotonic observations, so causal ordering does not depend on UTC remaining continuous. Native pipeline terminal success, fast-path ownership/configuration checks and the final business responses remain mandatory.
+
+Clock continuity does not establish absolute accuracy. Local clock proofs currently record `absoluteRateQualified: false` and `publicationQualified: false`. Summaries expose `sampleCountEligible` and `buildSampleCountEligible` separately from clock qualification. `publishable`, `operationPublishable` and `buildPublishable` stay false unless the relevant samples and clock are qualified. Historical local records remain readable, but their missing clock qualification also blocks speed publication. New local clocks and historical clocks are grouped separately, and different host/boot clock domains are not pooled. Precise website timings require an independently qualified, controlled-host cohort. Keep WSL diagnostics and earlier originals; do not rescale old durations, invent missing anchors or selectively rerun providers. Upload-size eligibility is separate.
+
+Each source edit remains a distinct attempt. The summary excludes only the top-level settings metadata `sourceCommit`, `originalSourceCommit` and `nativeSourceCommit` from settings grouping; these identities stay bound to each original record and source-projection evidence. Builder, minification, effective configuration, capacity, deployment mode and tool versions remain separate grouping inputs. A source change therefore does not split a ten-attempt series into ten groups, while a build-setting change does.
+
+Before validating an attempt, the runner saves its complete original payload under `attempted-record.json`. A validation rejection saves an `unqualified` result with `validationFailure` and a checksum link to that unchanged payload. Native command failures remain failed attempts. Logs, clock proofs and successful native observations remain available even when overall admission fails. The importer checks that the result is the original attempt plus only its evidence link and recorded admission decision.
 
 `durationMs` stays the complete recipe invocation time. `buildTiming.durationMs` measures native build planning through complete upload packages. It is observed during the same invocation, rather than calculated by subtracting other phases. New matched campaigns require `buildTiming.verified: true`; old records without that field remain operation-only records.
 
@@ -38,7 +50,7 @@ Native marker proofs retain `startNs` and `endNs` in the shared monotonic clock,
 
 Every matched result retains `buildTiming.nativeEvidence` and `inputEvidence` as file/SHA-256 pairs also present in `evidence`, plus normalized start/end/duration, configuration/instrumentation digests and artifact bindings. The original evidence must remain available with the record. A failed or unqualified attempt still retains any produced original trace and does not contribute a build sample.
 
-Summaries retain the legacy `medianSeconds` operation value and also name it `medianOperationSeconds`, with its full range. `medianBuildSeconds`, its range and `buildSamples` are separate. `buildPublishable` requires ten complete comparison rounds: each round has all four providers on the same `runId` and `sourceCommit`, in the same fixture/cache/campaign/capacity, with one unchanged recipe per provider. `matchedSourceRounds` exposes that count. An incomplete quartet cannot be hidden by ten unrelated samples per tool. Use only `buildPublishable` for the build-speed chart. `operationPublishable` supports a clearly labelled complete-recipe chart; `sizePublishable` supports the upload-size chart. Neither implies a matched build comparison.
+Summaries retain `medianSeconds` as the operation value and also name it `medianOperationSeconds`, with its full range. `medianBuildSeconds`, its range and `buildSamples` are separate. `buildSampleCountEligible` requires ten complete comparison rounds: each round has all four providers on the same `runId` and `sourceCommit`, in the same fixture/cache/campaign/capacity, with one unchanged recipe per provider. `matchedSourceRounds` exposes that count. An incomplete quartet cannot be hidden by ten unrelated samples per tool. `buildPublishable` additionally requires clock qualification. `operationPublishable` requires ten eligible samples and a qualified clock for a clearly labelled complete-recipe chart. `sizePublishable` supports the upload-size chart using its byte proofs, independently of clock qualification.
 
 Failed and unqualified matched attempts keep the same campaign, configuration/instrumentation digests and artifact format as their passed counterparts, plus original input and any available native trace evidence. A missing trace leaves `verified: false`; it does not turn the attempt into an operation-only campaign or remove it from failure counts.
 

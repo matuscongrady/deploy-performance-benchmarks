@@ -18,7 +18,7 @@ export async function probe(specs,{timeoutMs=900000,intervalMs=500,signal}={}) {
         if(spec.url) {const response=await fetch(spec.url,{method:spec.method||'GET',headers:body?{'content-type':'application/json',...spec.headers}:spec.headers,body:body?JSON.stringify(body):undefined,signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.ceil(remaining))]):AbortSignal.timeout(Math.ceil(remaining))});if(!response.ok)return;value=await response.json();}
         else if(spec.argv) {const response=await command(spec.argv,{cwd:spec.cwd,timeoutMs:remaining,signal});if(response.exitCode!==0)return;value=JSON.parse(response.stdout);}
         else throw Error('Probe needs url or argv');
-        if(matches(value,expected)){observations.push({name:spec.name||String(i),expected,observed:value,observedAt:new Date().toISOString()});pending.delete(i);}
+        if(matches(value,expected)){observations.push({name:spec.name||String(i),expected,observed:value,observedAt:new Date().toISOString(),observedMonotonicNs:process.hrtime.bigint().toString()});pending.delete(i);}
       }catch{/* Transient replacement responses remain pending. */}
     }));
     signal?.throwIfAborted();

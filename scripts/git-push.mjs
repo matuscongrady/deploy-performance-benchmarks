@@ -2,7 +2,8 @@
 import path from 'node:path';
 import os from 'node:os';
 import {mkdir} from 'node:fs/promises';
-import {root,json,saveResult,refuseExistingResult,scenarioById,parseArgs,safeId,command,sha256,validateRecord,requireGitCacheObserver,bindGitCacheEvidence,finishGitVerification} from './lib.mjs';
+import {root,json,saveMeasuredAttempt,refuseExistingResult,scenarioById,parseArgs,safeId,command,sha256,requireGitCacheObserver,bindGitCacheEvidence,finishGitVerification} from './lib.mjs';
+import {localClock,clockMarker,retainClockEvidence} from './clock.mjs';
 import {checkQualification} from './qualification.mjs';
 import {measureDeployment} from './deployment-timer.mjs';
 import {readPredecessor,observeCurrentPredecessor,bindPredecessor} from './git-predecessor.mjs';
@@ -33,15 +34,17 @@ try {
   const dir=path.join(root,'.work',runId,provider);await mkdir(dir,{recursive:true});
   if(preceding)nativeCurrent=await observeCurrentPredecessor(q,preceding);
   const stdoutFile=path.join(dir,'push.stdout.log'),stderrFile=path.join(dir,'push.stderr.log');
+  const clock=await localClock();
   let pushed;
   const measured=await measureDeployment({
+    clock,
     runNative:async()=>{
       pushed=await command(['git','push',remote,`HEAD:refs/heads/${branch}`],{stdoutFile,stderrFile,timeoutMs:120000});
       return {passed:pushed.exitCode===0,failure:pushed.exitCode===0?undefined:'Git push failed',finishedAt:pushed.finishedAt,durationMs:pushed.durationMs};
     },
     probeReady:signal=>probe(q.probes,{timeoutMs:q.timeoutMs||1800000,signal})
   });
-  const {startedAt,finishedAt,durationMs,readiness}=measured;
+  const {startedAt,finishedAt,durationMs,readiness}=measured;let timing=measured.timing;
   let statusValue=measured.status,failure=measured.failure;
   if(preceding)predecessor=await bindPredecessor({binding:preceding,q,identity,nativeCurrent,baseline,startedAt});
   let pipelineCompletion,reuse,cacheEvidence,postCompletionReadiness;
@@ -50,15 +53,17 @@ try {
     const {captureComponents,compareUnchanged}=await import('./component-state.mjs');
     const verified=await finishGitVerification({wait:()=>waitForPipeline(q.pipeline.completion,sourceCommit,{timeoutMs:q.timeoutMs||1800000}),before:componentsBefore,capture:scenario.fixture==='five-services'?()=>captureComponents(q.componentSnapshots):undefined,compare:compareUnchanged});
     ({pipelineCompletion,reuse}=verified);
+    pipelineCompletion.observedMonotonicNs=clockMarker().monotonicNs;
     postCompletionReadiness=await probe(q.probes,{timeoutMs:q.timeoutMs||1800000});
     cacheEvidence=await bindGitCacheEvidence({q,identity:{runId,sourceCommit,scenario:id,provider,appId:q.appId,series:q.cacheEvidence.series},completion:pipelineCompletion,predecessor});
   }catch(e){statusValue='failed';failure=e.message;}}
-  const admittedAt=new Date().toISOString();
+  const admitted=clockMarker(),admittedAt=admitted.observedAt,admittedMonotonicNs=admitted.monotonicNs;
   const completionFile=path.join(dir,'pipeline-completion.json');const {save}=await import('./lib.mjs');await save(completionFile,{pipelineCompletion,postCompletionReadiness,admittedAt,failure});
   const evidence=await Promise.all([stdoutFile,stderrFile,completionFile].map(async file=>({file:path.relative(root,file),sha256:await sha256(file)})));
+  timing=await retainClockEvidence(timing,{scenario:id,provider,runId,sourceCommit,appId:q.appId,stage:q.stage},{base:root,file:path.join(dir,'clock.json')});evidence.push(timing.proof);
   if(predecessor)evidence.push({file:predecessor.proofFile,sha256:predecessor.proofSHA});
   if(cacheEvidence)evidence.push({file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA},cacheEvidence.nativeEvidence);
-  const record={schemaVersion:1,kind:'deploy',scenario:id,provider,runId,appId:q.appId,stage:q.stage,status:statusValue,failure,sourceCommit,startedAt,finishedAt,admittedAt,durationMs,predecessor,commandDurationMs:pushed?.durationMs,baseline,readiness,postCompletionReadiness,reuse,rolloutAdmission:cacheEvidence?.rolloutAdmission,toolVersion:q.toolVersion,timerHost:{host:os.hostname(),platform:os.platform(),node:process.version},environment:{...q.environment,runner:cacheEvidence?.runner,cpu:cacheEvidence?.runner?.cpu,cores:cacheEvidence?.runner?.cores,memoryBytes:cacheEvidence?.runner?.memoryBytes,arch:cacheEvidence?.runner?.arch,node:cacheEvidence?.runner?.node,platform:cacheEvidence?.runner?.platform},settings:q.settings,cacheEvidence,pipeline:q.pipeline,pipelineCompletion,evidence};
-  try{validateRecord(record);}catch(e){record.status='failed';record.failure=e.message;validateRecord(record);}await saveResult(resultFile,record);
-  console.log(JSON.stringify(record,null,2));if(record.status!=='passed')process.exitCode=1;
+  const record={schemaVersion:1,kind:'deploy',scenario:id,provider,runId,appId:q.appId,stage:q.stage,status:statusValue,failure,sourceCommit,startedAt,finishedAt,admittedAt,admittedMonotonicNs,durationMs,timing,predecessor,commandDurationMs:pushed?.durationMs,baseline,readiness,postCompletionReadiness,reuse,rolloutAdmission:cacheEvidence?.rolloutAdmission,toolVersion:q.toolVersion,timerHost:{host:os.hostname(),platform:os.platform(),node:process.version},environment:{...q.environment,runner:cacheEvidence?.runner,cpu:cacheEvidence?.runner?.cpu,cores:cacheEvidence?.runner?.cores,memoryBytes:cacheEvidence?.runner?.memoryBytes,arch:cacheEvidence?.runner?.arch,node:cacheEvidence?.runner?.node,platform:cacheEvidence?.runner?.platform},settings:q.settings,cacheEvidence,pipeline:q.pipeline,pipelineCompletion,evidence};
+  const saved=await saveMeasuredAttempt(resultFile,record,{attemptFile:path.join(dir,'attempted-record.json')});
+  console.log(JSON.stringify(saved,null,2));if(saved.status!=='passed')process.exitCode=1;
 } catch(e){console.error(e.message);process.exitCode=1;}

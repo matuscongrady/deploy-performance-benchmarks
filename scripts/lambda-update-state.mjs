@@ -103,7 +103,7 @@ export async function captureLambdaState(q,provider,runCommand,{project}={}) {
     }
     nativeTemplate={stableSHA256:hash(template),allowedChanges:'Selected Lambda Code upload fields and generated asset metadata only'};
   }
-  return {observedAt:new Date().toISOString(),functions,...cloudformation&&{cloudformation},...pathState&&{pathState},...assetBucket&&{assetBucket},...nativeTemplate&&{nativeTemplate}};
+  return {observedAt:new Date().toISOString(),observedMonotonicNs:process.hrtime.bigint().toString(),functions,...cloudformation&&{cloudformation},...pathState&&{pathState},...assetBucket&&{assetBucket},...nativeTemplate&&{nativeTemplate}};
 }
 export function compareLambdaUpdate(before,after,{provider,names}) {
   for(const observation of [before,after])if(!Array.isArray(observation?.functions)||!isDeepStrictEqual(observation.functions.map(f=>f.name).sort(),[...names].sort())||new Set(observation.functions.map(f=>f.name)).size!==names.length)throw Error('Lambda update proof is missing selected functions');
@@ -290,7 +290,9 @@ export function validateLambdaAdmission(record) {
   for(const key of ['provider','runId','sourceCommit','appId','stage'])if(a[key]!==record[key])throw Error('Lambda update admission differs from '+key);
   if(a.accountId!==record.environment.accountId||a.region!==record.environment.region)throw Error('Lambda update admission differs from account/region');
   const started=Date.parse(record.startedAt),completed=Date.parse(record.nativeCompletion?.finishedAt||record.pipelineCompletion?.verifiedAt);
-  if(!Number.isFinite(started)||!Number.isFinite(completed)||Date.parse(a.before?.observedAt)>started||!Number.isFinite(Date.parse(a.before?.observedAt))||!Number.isFinite(Date.parse(a.after?.observedAt))||Date.parse(a.after.observedAt)<completed)throw Error('Lambda update observations must surround native completion outside timing');
+  const validNs=v=>typeof v==='string'&&/^(0|[1-9][0-9]*)$/.test(v);
+  const ordered=record.timing?validNs(a.before?.observedMonotonicNs)&&validNs(a.after?.observedMonotonicNs)&&validNs(record.nativeCompletion?.completedMonotonicNs)&&BigInt(a.before.observedMonotonicNs)<=BigInt(record.timing.start.monotonicNs)&&BigInt(a.after.observedMonotonicNs)>=BigInt(record.nativeCompletion.completedMonotonicNs):Date.parse(a.before?.observedAt)<=started&&Date.parse(a.after?.observedAt)>=completed;
+  if(!Number.isFinite(started)||!Number.isFinite(completed)||!Number.isFinite(Date.parse(a.before?.observedAt))||!Number.isFinite(Date.parse(a.after?.observedAt))||!ordered)throw Error('Lambda update observations must surround native completion outside timing');
   const names=record.readiness.observations.map(o=>o.name);
   const compared=compareLambdaUpdate(a.before,a.after,{provider:record.provider,names});
   if(!isDeepStrictEqual(compared.updates,a.updates))throw Error('Lambda update summary differs from native observations');

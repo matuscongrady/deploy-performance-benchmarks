@@ -3,13 +3,55 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import {isDeepStrictEqual} from 'node:util';
 import {validateBuildSummary} from './build-timing.mjs';
 import {validateLambdaAdmission} from './lambda-update-state.mjs';
+import {validateLocalTiming} from './clock.mjs';
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export async function json(file) { return JSON.parse(await readFile(file, 'utf8')); }
 export async function save(file, value) { await mkdir(path.dirname(file), {recursive:true}); await writeFile(file, JSON.stringify(value,null,2)+'\n'); }
 export async function saveResult(file, value) { await mkdir(path.dirname(file), {recursive:true}); await writeFile(file, JSON.stringify(value,null,2)+'\n',{flag:'wx'}); }
 export async function refuseExistingResult(file) { try { await access(file); } catch(e) { if(e.code==='ENOENT') return; throw e; } throw Error('Result already exists; use a new run ID: '+file); }
+export async function saveMeasuredAttempt(file,record,{attemptFile,base=root,validate=validateRecord}) {
+  await refuseExistingResult(file);
+  if(path.resolve(attemptFile)===path.resolve(file))throw Error('Attempt evidence and admitted result need separate files');
+  // Persist the full observed attempt before admission can throw. Neither this
+  // original nor a failed result is replaced by a successful retry.
+  await saveResult(attemptFile,record);
+  const proof={file:path.relative(base,attemptFile),sha256:await sha256(attemptFile)};
+  let result={...record,attemptedRecord:proof,evidence:[...(record.evidence||[]),proof]};
+  try {validate(result);}catch(error){result={...result,status:'unqualified',failure:error.message,validationFailure:{kind:'record-admission',reason:error.message,attemptedStatus:record.status}};}
+  await saveResult(file,result);return result;
+}
+export async function verifyImportedAttempt(record,{base=root}={}) {
+  if(!record.attemptedRecord)return; // Historical originals have no sidecar.
+  const proof=record.attemptedRecord;
+  if(!record.evidence?.some(e=>e.file===proof.file&&e.sha256===proof.sha256)||await sha256(path.resolve(base,proof.file))!==proof.sha256)throw Error('Original attempted-record checksum mismatch');
+  const original=await json(path.resolve(base,proof.file));
+  let expected={...original,attemptedRecord:proof,evidence:[...(original.evidence||[]),proof]};
+  if(record.validationFailure){
+    const v=record.validationFailure;
+    if(v.kind!=='record-admission'||!v.reason||v.attemptedStatus!==original.status||record.status!=='unqualified'||record.failure!==v.reason)throw Error('Attempt validation failure differs from the retained original');
+    expected={...expected,status:'unqualified',failure:v.reason,validationFailure:v};
+  }
+  if(!isDeepStrictEqual(record,expected))throw Error('Imported result differs from its original complete attempt');
+}
+export function validateImportedDeploymentBusiness(record,qualification){
+  if(record.status!=='passed'||record.kind!=='deploy')return;
+  const contains=(actual,want)=>Array.isArray(want)?Array.isArray(actual)&&actual.length===want.length&&want.every((v,i)=>contains(actual[i],v)):want&&typeof want==='object'?actual&&Object.entries(want).every(([k,v])=>contains(actual[k],v)):actual===want;
+  const validNs=v=>typeof v==='string'&&/^(0|[1-9][0-9]*)$/.test(v);
+  for(const expectedProbe of qualification.probes){
+    const observation=record.readiness.observations.find(o=>o.name===expectedProbe.name),expected=structuredClone(expectedProbe.expected);
+    if(expectedProbe.body&&Object.hasOwn(expectedProbe.body,'jobId'))delete expected.jobId;
+    if(!observation||!contains(observation.observed,expected))throw Error('Imported business response differs from qualification: '+expectedProbe.name);
+    if(record.scenario.includes('-git-')){const after=record.postCompletionReadiness.observations.find(o=>o.name===expectedProbe.name);if(!after||!contains(after.observed,expected))throw Error('Imported post-terminal business response differs from qualification: '+expectedProbe.name);}
+    if(record.scenario.endsWith('-cli')){
+      const after=record.nativeCompletion.postCompletionReadiness.observations.find(o=>o.name===expectedProbe.name);
+      const ordered=record.timing?validNs(after?.observedMonotonicNs)&&validNs(record.nativeCompletion.completedMonotonicNs)&&BigInt(after.observedMonotonicNs)>=BigInt(record.nativeCompletion.completedMonotonicNs):Date.parse(after?.observedAt)>=Date.parse(record.nativeCompletion.finishedAt);
+      if(!after||!contains(after.observed,expected)||!Number.isFinite(Date.parse(after.observedAt))||!ordered)throw Error('Imported post-completion business response differs from qualification: '+expectedProbe.name);
+    }
+  }
+}
 export async function scenarios() { return (await json(path.join(root,'scenarios/index.json'))).scenarios; }
 export async function scenarioById(id) { const value=(await scenarios()).find(s=>s.id===id); if(!value) throw Error('Unknown test: '+id); return value; }
 export function parseArgs(args) { const positional=[]; const flags={}; for(let i=0;i<args.length;i++) { if(args[i].startsWith('--')) { const key=args[i].slice(2); if(['execute'].includes(key)) flags[key]=true; else { if(!args[i+1]||args[i+1].startsWith('--')) throw Error('Missing value for --'+key); flags[key]=args[++i]; } } else positional.push(args[i]); } return {positional,flags}; }
@@ -167,14 +209,18 @@ export function validatePredecessorSummary(record) {
 
 
 export function validateRecord(r) {
-  validateBuildSummary(r);
+  // A rejected original can contain precisely the invalid build summary that
+  // caused rejection. Retain it for diagnosis without admitting that metric.
+  const rejectedAttempt=r.status==='unqualified'&&r.validationFailure?.kind==='record-admission'&&r.attemptedRecord?.file&&r.evidence?.some(e=>e.file===r.attemptedRecord.file&&e.sha256===r.attemptedRecord.sha256);
+  if(!rejectedAttempt)validateBuildSummary(r);
   if(r.schemaVersion!==1||!['package','deploy'].includes(r.kind)||!['passed','failed','unqualified'].includes(r.status)) throw Error('Invalid result schema/kind/status');
   for(const key of ['scenario','provider','runId','sourceCommit','startedAt','finishedAt']) if(typeof r[key]!=='string'||!r[key]) throw Error('Missing '+key);
-  if(!Number.isFinite(Date.parse(r.startedAt))||!Number.isFinite(Date.parse(r.finishedAt))||Date.parse(r.finishedAt)<Date.parse(r.startedAt)) throw Error('Invalid timer timestamps');
+  if(!Number.isFinite(Date.parse(r.startedAt))||!Number.isFinite(Date.parse(r.finishedAt))||!r.timing&&Date.parse(r.finishedAt)<Date.parse(r.startedAt)) throw Error('Invalid timer timestamps');
   if(!/^[a-f0-9]{40}$/.test(r.sourceCommit)) throw Error('sourceCommit must be a full Git SHA');
   if(r.status==='passed') {
     if(!Number.isFinite(r.durationMs)||r.durationMs<0) throw Error('Invalid duration');
-    if(Math.abs(Date.parse(r.finishedAt)-Date.parse(r.startedAt)-r.durationMs)>1000)throw Error('Elapsed duration differs from observed timer boundaries');
+    if(r.timing)validateLocalTiming(r);
+    else if(Math.abs(Date.parse(r.finishedAt)-Date.parse(r.startedAt)-r.durationMs)>1000)throw Error('Elapsed duration differs from observed timer boundaries');
     if(!r.toolVersion||!r.environment||!r.cacheEvidence||!Array.isArray(r.evidence)||!r.evidence.length) throw Error('Passed results require versions, environment, cache evidence and source evidence');
     cacheIdentity(r.cacheEvidence,{...r,series:r.cacheEvidence.series});
     if(!r.cacheEvidence.proofFile||!/^[a-f0-9]{64}$/.test(r.cacheEvidence.proofSHA||'')||!r.evidence.some(e=>e.file===r.cacheEvidence.proofFile&&e.sha256===r.cacheEvidence.proofSHA))throw Error('Passed results require matching immutable per-attempt cache proof and evidence checksum');
@@ -182,11 +228,15 @@ export function validateRecord(r) {
       if(r.scenario.endsWith('-git-repeat')){validatePredecessorSummary(r);if(JSON.stringify(r.cacheEvidence.predecessor)!==JSON.stringify(r.predecessor))throw Error('Repeat predecessor differs from the immutable cache proof');}
       if(r.scenario.endsWith('-cli')) {
         const native=r.nativeCompletion,after=native?.postCompletionReadiness?.observations;
-        if(native?.verified!==true||native.outsideReadinessTimer!==true||!Number.isFinite(Date.parse(native.finishedAt))||Date.parse(native.finishedAt)<Date.parse(r.startedAt)||native.postCompletionReadiness?.verified!==true||!Array.isArray(after)||after.length!==r.readiness?.observations?.length||r.readiness.observations.some(o=>!after.some(a=>a.name===o.name&&a.observed?.revision===o.expected.revision)))throw Error('CLI results require successful native completion and post-completion business revisions outside the readiness timer');
+        const ordered=r.timing?/^(0|[1-9][0-9]*)$/.test(native?.completedMonotonicNs||'')&&BigInt(native.completedMonotonicNs)>=BigInt(r.timing.start.monotonicNs):Date.parse(native?.finishedAt)>=Date.parse(r.startedAt);
+        if(native?.verified!==true||native.outsideReadinessTimer!==true||!Number.isFinite(Date.parse(native.finishedAt))||!ordered||native.postCompletionReadiness?.verified!==true||!Array.isArray(after)||after.length!==r.readiness?.observations?.length||r.readiness.observations.some(o=>!after.some(a=>a.name===o.name&&a.observed?.revision===o.expected.revision&&(!r.timing||/^(0|[1-9][0-9]*)$/.test(a.observedMonotonicNs||'')&&BigInt(a.observedMonotonicNs)>=BigInt(native.completedMonotonicNs)))))throw Error('CLI results require successful native completion and post-completion business revisions outside the readiness timer');
       }
       if(r.scenario.includes('-git-')) {
         const completed=Date.parse(r.pipelineCompletion?.verifiedAt),admitted=Date.parse(r.admittedAt),after=r.postCompletionReadiness?.observations;
-        if(!Number.isFinite(completed)||completed<Date.parse(r.startedAt)||!Number.isFinite(admitted)||admitted<completed||r.postCompletionReadiness?.verified!==true||!Array.isArray(after)||after.length!==r.readiness?.observations?.length||r.readiness.observations.some(o=>!after.some(a=>a.name===o.name&&a.observed?.revision===o.expected.revision&&Number.isFinite(Date.parse(a.observedAt))&&Date.parse(a.observedAt)>=completed&&Date.parse(a.observedAt)<=admitted)))throw Error('Git results require all business revisions after native terminal success and outside the readiness timer');
+        const validNs=v=>typeof v==='string'&&/^(0|[1-9][0-9]*)$/.test(v);
+        const completedNs=r.pipelineCompletion?.observedMonotonicNs,admittedNs=r.admittedMonotonicNs;
+        const ordered=r.timing?validNs(completedNs)&&validNs(admittedNs)&&BigInt(completedNs)>=BigInt(r.timing.start.monotonicNs)&&BigInt(admittedNs)>=BigInt(completedNs):completed>=Date.parse(r.startedAt)&&admitted>=completed;
+        if(!Number.isFinite(completed)||!Number.isFinite(admitted)||!ordered||r.postCompletionReadiness?.verified!==true||!Array.isArray(after)||after.length!==r.readiness?.observations?.length||r.readiness.observations.some(o=>!after.some(a=>a.name===o.name&&a.observed?.revision===o.expected.revision&&Number.isFinite(Date.parse(a.observedAt))&&(r.timing?validNs(a.observedMonotonicNs)&&BigInt(a.observedMonotonicNs)>=BigInt(completedNs)&&BigInt(a.observedMonotonicNs)<=BigInt(admittedNs):Date.parse(a.observedAt)>=completed&&Date.parse(a.observedAt)<=admitted))))throw Error('Git results require all business revisions after native terminal success and outside the readiness timer');
       }
       if(r.scenario.includes('-git-')&&(r.pipelineCompletion?.verified!==true||r.pipelineCompletion.sourceCommit!==r.sourceCommit||r.pipelineCompletion.status!=='succeeded'||!r.pipelineCompletion.runId))throw Error('Git results require successful native pipeline completion for the pushed SHA');
       if(r.scenario.includes('-git-')&&(r.cacheEvidence.mode==='local'||r.cacheEvidence.completion?.runId!==r.pipelineCompletion.runId||r.cacheEvidence.completion?.runAttempt!==r.pipelineCompletion.runAttempt))throw Error('Git cache proof must identify the completed native pipeline attempt');

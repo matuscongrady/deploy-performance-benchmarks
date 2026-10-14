@@ -2,6 +2,8 @@
 
 ## Packaging
 
+Use one local monotonic clock for elapsed intervals across every provider. Save its start/end nanoseconds, Linux boot ID and clocksource in immutable per-attempt evidence. Observe UTC separately for log correlation. A system-time correction must not change the measured interval or cause the runner to lose its original record. Keep the wall/monotonic offset diagnostic; do not enlarge a wall-time tolerance or correct results afterward. Continuity alone does not prove clock-rate accuracy: local WSL results remain diagnostics until a whole comparable cohort is repeated on an independently qualified controlled host.
+
 Local Lambda packaging records two times from the same invocation. **Build the upload packages** starts at the first native build invocation, includes build planning, dependency installation or copying, bundling and archiving, and ends when every selected function ZIP, required shared layer and separate source map is ready. **Run the complete packaging recipe** starts immediately before its command and ends when the command returns. Keep both times. CLI startup, configuration loading or credential setup before the native build belong to the complete recipe time.
 
 The build chart compares only the first boundary. A complete native ZIP that matches an uploaded ZIP proves the artifact, but does not prove that a private build bridge and an ordinary CLI command timed the same work. Label the operation chart with the actual command or bridge recipe; its numbers do not establish an ordinary CLI or packaging-engine ranking. Historical operation-only records have no build time. Do not calculate one by subtracting startup diagnostics afterward.

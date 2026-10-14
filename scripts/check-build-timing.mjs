@@ -70,17 +70,19 @@ try {
     const r=structuredClone(record);r.provider=provider;r.cacheEvidence.provider=provider;r.runId='round-'+i;r.cacheEvidence.runId=r.runId;r.buildTiming.producer=provider==='candidate'?'candidate-trace':'native-markers';if(provider==='serverless')r.buildTiming.nativeMethodSha256=slsMethods;
     if(provider==='sst'){const map={name:'report',role:'source-map',path:'report.map',bytes:1,sha256:'e'.repeat(64),evidenceFile:'report.map',uploadedSeparately:true,sourceMap:{version:3}};r.artifacts.files.push(map);r.evidence.push({file:map.evidenceFile,sha256:map.sha256});r.artifacts.sourceMapBytes=1;r.artifacts.bytes+=1;r.buildTiming.artifactBindings.push({name:map.name,role:map.role,path:map.path,bytes:map.bytes,sha256:map.sha256});r.buildTiming.artifactBindings.sort((a,b)=>`${a.role}/${a.name}/${a.path}`.localeCompare(`${b.role}/${b.name}/${b.path}`,'en'));}samples.push(r);
   }
-  assert.ok(summarizeResults(samples).every(r=>r.buildPublishable));assert.ok(summarizeResults(samples.slice(0,-1)).every(r=>!r.buildPublishable));
-  const changed=samples.map(r=>r.provider==='sst'?{...r,buildTiming:{...r.buildTiming,campaignId:'different-campaign'}}:r);assert.ok(summarizeResults(changed).every(r=>!r.buildPublishable));
-  const differentSources=samples.map(r=>r.provider==='sst'?{...r,sourceCommit:'d'.repeat(40),cacheEvidence:{...r.cacheEvidence,sourceCommit:'d'.repeat(40)}}:r);assert.ok(summarizeResults(differentSources).every(r=>!r.buildPublishable));
-  const mismatchedRound=samples.map((r,i)=>i===15?{...r,runId:'different-round',cacheEvidence:{...r.cacheEvidence,runId:'different-round'}}:r);assert.ok(summarizeResults(mismatchedRound).every(r=>!r.buildPublishable));
+  assert.ok(summarizeResults(samples).every(r=>r.buildSampleCountEligible&&!r.buildPublishable&&!r.operationPublishable));assert.ok(summarizeResults(samples.slice(0,-1)).every(r=>!r.buildSampleCountEligible));
+  const changed=samples.map(r=>r.provider==='sst'?{...r,buildTiming:{...r.buildTiming,campaignId:'different-campaign'}}:r);assert.ok(summarizeResults(changed).every(r=>!r.buildSampleCountEligible));
+  const differentSources=samples.map(r=>r.provider==='sst'?{...r,sourceCommit:'d'.repeat(40),cacheEvidence:{...r.cacheEvidence,sourceCommit:'d'.repeat(40)}}:r);assert.ok(summarizeResults(differentSources).every(r=>!r.buildSampleCountEligible));
+  const mismatchedRound=samples.map((r,i)=>i===15?{...r,runId:'different-round',cacheEvidence:{...r.cacheEvidence,runId:'different-round'}}:r);assert.ok(summarizeResults(mismatchedRound).every(r=>!r.buildSampleCountEligible));
   for(const status of ['failed','unqualified']){
     const unsuccessful={...record,status,failure:'No successful native trace',artifacts:{complete:false,format:'lambda-zip'},buildTiming:{required:true,verified:false,campaignId:spec.campaignId,scope:buildScope,clock:buildClock,producer:spec.producer,configurationSha256:input.manifest.configurationSha256,instrumentationSha256:input.manifest.instrumentationSha256,inputEvidence:buildTiming.inputEvidence}};
     validateRecord(unsuccessful);await verifyImportedBuildTiming(unsuccessful,{base:temp});
     const summary=summarizeResults([record,{...unsuccessful,runId:'failed-round',cacheEvidence:{...cacheEvidence,runId:'failed-round'}}]);assert.equal(summary.length,1);assert.equal(summary[0].attempts,2);assert.equal(summary[0][status],1);assert.equal(summary[0].buildSamples,1);assert.match(summary[0].test,/matched-test/);
   }
   assert.throws(()=>summarizeResults([record,record]),/Duplicate/);
-  const mixed=samples.map((r,i)=>i===15?{...r,toolVersion:{reported:'different-version'}}:r);assert.ok(summarizeResults(mixed).every(r=>!r.buildPublishable));
+  const variedProvenance=samples.map((r,i)=>({...r,settings:{...r.settings,sourceCommit:r.sourceCommit,originalSourceCommit:r.sourceCommit,nativeSourceCommit:i.toString(16).padStart(40,'0')}}));
+  assert.ok(summarizeResults(variedProvenance).every(r=>r.buildSampleCountEligible&&!r.buildPublishable));
+  const mixed=samples.map((r,i)=>i===15?{...r,toolVersion:{reported:'different-version'}}:r);assert.ok(summarizeResults(mixed).every(r=>!r.buildSampleCountEligible));
   // Exercise the actual producer and consumer contract without invoking a provider CLI.
   const project=path.join(temp,'contract');await mkdir(path.join(project,'app'),{recursive:true});await writeFile(path.join(project,'app','source.mjs'),'export const revision="contract";');await writeFile(path.join(project,'app','package-lock.json'),'{}');
   for(const name of buildTimingDefaults.cdk.configurationFiles)await writeFile(path.join(project,name),'{}');

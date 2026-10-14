@@ -4,7 +4,8 @@ import os from 'node:os';
 import {isDeepStrictEqual} from 'node:util';
 import {mkdir,readFile,copyFile} from 'node:fs/promises';
 import {constants} from 'node:fs';
-import {root,json,save,saveResult,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord,readCacheEvidence} from './lib.mjs';
+import {root,json,save,saveResult,saveMeasuredAttempt,verifyImportedAttempt,validateImportedDeploymentBusiness,refuseExistingResult,scenarios,scenarioById,parseArgs,safeId,command,sha256,validateRecord,readCacheEvidence} from './lib.mjs';
+import {localClock,intervalTiming,retainClockEvidence,verifyImportedClock} from './clock.mjs';
 import {verifyImportedPredecessor} from './git-predecessor.mjs';
 import {measureDeployment} from './deployment-timer.mjs';
 import {needsSstRollout,admitSstRollout,captureSstRolloutBaseline} from './sst-rollout.mjs';
@@ -81,33 +82,35 @@ try {
       buildEnv={BENCH_PROVIDER:provider,BENCH_RUN_ID:runId,BENCH_SOURCE_COMMIT:buildIdentity.sourceCommit,BENCH_APP_ID:appId,BENCH_FIXTURE:scenario.fixture,BENCH_BUILD_TIMING_FILE:buildNativeFile,BENCH_BUILD_INPUT_MANIFEST:buildInput.file,BENCH_BUILD_INPUT_MANIFEST_SHA256:buildInput.sha256,BENCH_BUILD_CONFIG_SHA256:buildInput.manifest.configurationSha256};
       if(provider==='candidate')Object.assign(buildEnv,{STP_TIMINGS_FILE:buildNativeFile,STP_TIMINGS_BINDINGS_SHA256:buildInput.sha256,STP_TIMINGS_CONFIG_SHA256:buildInput.manifest.configurationSha256});
     }
-    let startedAt,start,commandFinishedAt,commandDurationMs,finishedAt,durationMs;
+    const clock=await localClock();
+    let startedAt,commandFinishedAt,commandDurationMs,finishedAt,durationMs,timing;
     const logs=[]; let status='passed',failure;
     let readiness={verified:false},artifacts={complete:false,...scenario.kind==='package'&&{format:qualification.artifacts.format}},nativeCompletion;
     async function runNative() {
-      const nativeStart=performance.now();let passed=true,nativeFailure;
+      const nativeStart=clock.mark();let passed=true,nativeFailure;
       for(let i=0;i<commands.length;i++) {
         const stdoutFile=path.join(evidenceDir,`command-${i}.stdout.log`),stderrFile=path.join(evidenceDir,`command-${i}.stderr.log`);
         const result=await command(commands[i],{cwd:plan.cwd,env:{...plan.env,BENCH_SOURCE_COMMIT:git.stdout.trim(),BENCH_RUN_ID:runId,...provider==='sst'&&needsLambdaUpdate(scenario)&&{SST_RUN_ID:runId},...buildEnv},stdoutFile,stderrFile});
         logs.push({argv:result.argv,pid:result.pid,exitCode:result.exitCode,durationMs:result.durationMs,stdoutFile,stderrFile});
         if(result.exitCode!==0) {passed=false;nativeFailure=`Native command ${i+1} failed`;break;}
       }
-      commandFinishedAt=new Date().toISOString();commandDurationMs=performance.now()-nativeStart;
+      const completed=clock.mark();commandFinishedAt=completed.observedAt;commandDurationMs=Number(BigInt(completed.monotonicNs)-BigInt(nativeStart.monotonicNs))/1e6;
       return {passed,failure:nativeFailure,finishedAt:commandFinishedAt,durationMs:commandDurationMs};
     }
     if(scenario.kind==='deploy') {
       const {probe}=await import('./probe.mjs');
-      const measured=await measureDeployment({runNative,probeReady:signal=>probe(qualification.probes,{timeoutMs:qualification.timeoutMs||900000,signal})});
-      ({startedAt,finishedAt,durationMs,readiness,status,failure}=measured);
-      nativeCompletion={verified:measured.completion.passed,outsideReadinessTimer:true,finishedAt:commandFinishedAt};
+      const measured=await measureDeployment({runNative,clock,probeReady:signal=>probe(qualification.probes,{timeoutMs:qualification.timeoutMs||900000,signal})});
+      ({startedAt,finishedAt,durationMs,timing,readiness,status,failure}=measured);
+      nativeCompletion={verified:measured.completion.passed,outsideReadinessTimer:true,finishedAt:commandFinishedAt,completedMonotonicNs:measured.completion.completedMonotonicNs};
       // Keep readiness as the first observation, but do not admit a rollback or failed native completion.
       if(status==='passed')try{nativeCompletion.postCompletionReadiness=await probe(qualification.probes,{timeoutMs:qualification.timeoutMs||900000});}catch(e){status='failed';failure=e.message;nativeCompletion.verified=false;}
     } else {
-      startedAt=new Date().toISOString();start=performance.now();
-      if(buildInput)operationTiming={clock:buildClock,startNs:process.hrtime.bigint().toString()};
+      const start=clock.mark();startedAt=start.observedAt;
+      if(buildInput)operationTiming={clock:buildClock,startNs:start.monotonicNs};
       const completed=await runNative();if(!completed.passed){status='failed';failure=completed.failure;}
-      if(buildInput)operationTiming.endNs=process.hrtime.bigint().toString();
-      durationMs=performance.now()-start;finishedAt=commandFinishedAt;
+      const end=clock.mark();
+      if(buildInput)operationTiming.endNs=end.monotonicNs;
+      timing=intervalTiming(clock,start,end);durationMs=timing.durationMs;finishedAt=end.observedAt;
     }
     if(status==='passed'&&scenario.kind==='package') {
       const {collectArtifacts}=await import('./sizes.mjs');
@@ -146,6 +149,7 @@ try {
     if(status==='passed'&&needsSstRollout(scenario,provider)){try{rolloutAdmission=await admitSstRollout(qualification,{baseline:rolloutBaseline});}catch(e){status='failed';failure=e.message;rolloutAdmission=e.rolloutAdmission;}}
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
+    timing=await retainClockEvidence(timing,{scenario:id,provider,runId,sourceCommit:git.stdout.trim(),appId,stage:flags.stage||'bench'},{base:root,file:path.join(evidenceDir,'clock.json')});evidence.push(timing.proof);
     if(lambdaUpdateAdmission){const file=path.join(evidenceDir,'lambda-update-admission.json');await saveResult(file,lambdaUpdateAdmission);const proof={file:path.relative(root,file),sha256:await sha256(file)};evidence.push(proof);lambdaUpdateAdmission={...lambdaUpdateAdmission,proof};}
     if(buildInput){evidence.push({file:path.relative(root,buildInput.file),sha256:buildInput.sha256});try{const nativeEvidence={file:path.relative(root,buildNativeFile),sha256:await sha256(buildNativeFile)};evidence.push(nativeEvidence);buildTiming.nativeEvidence=nativeEvidence;}catch(e){if(e.code!=='ENOENT')throw e;}}
     if(rolloutAdmission){const file=path.join(evidenceDir,'rollout-admission.json');await save(file,rolloutAdmission);evidence.push({file:path.relative(root,file),sha256:await sha256(file)});}
@@ -156,12 +160,12 @@ try {
       evidence.push({file:artifact.evidenceFile,sha256:artifact.sha256});
     }
     for(const log of logs) for(const file of [log.stdoutFile,log.stderrFile]) evidence.push({file:path.relative(root,file),sha256:await sha256(file)});
-    const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt,durationMs,commandDurationMs,nativeCompletion,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
+    const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt,durationMs,timing,commandDurationMs,nativeCompletion,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
     if(buildInput)Object.assign(record,{buildTiming,operationTiming});
     if(rolloutAdmission)record.rolloutAdmission=rolloutAdmission;
     if(lambdaUpdateAdmission)record.lambdaUpdateAdmission=lambdaUpdateAdmission;
-    validateRecord(record); await saveResult(resultFile,record);
-    console.log(JSON.stringify(record,null,2)); if(status!=='passed') process.exitCode=1;
+    const saved=await saveMeasuredAttempt(resultFile,record,{attemptFile:path.join(evidenceDir,'attempted-record.json')});
+    console.log(JSON.stringify(saved,null,2)); if(saved.status!=='passed') process.exitCode=1;
   } else if(operation==='record-managed') {
     const record=validateRecord(await json(id));
     const scenario=await scenarioById(record.scenario);if(!scenario.providers.includes(record.provider))throw Error('Provider is not supported by this test');if(record.kind!==scenario.kind)throw Error('Record kind differs from selected test');safeId(record.provider);safeId(record.runId);
@@ -174,13 +178,7 @@ try {
     if(record.buildTiming&&!isDeepStrictEqual(record.buildTiming.nativeMethodSha256,qualification.buildTiming.nativeMethodSha256))throw Error('Imported native lifecycle differs from qualification');
     if(record.stage!==qualification.stage||record.appId!==qualification.appId||record.environment.region!==qualification.environment.region||record.status==='passed'&&record.cacheEvidence.series!==qualification.cacheEvidence.series||record.toolVersion.reported!==qualification.toolVersion.reported||record.toolVersion.sha256!==qualification.toolVersion.sha256)throw Error('Imported application/version/environment/cache metadata differs from qualification');
     const contains=(actual,want)=>Array.isArray(want)?Array.isArray(actual)&&actual.length===want.length&&want.every((v,i)=>contains(actual[i],v)):want&&typeof want==='object'?actual&&Object.entries(want).every(([k,v])=>contains(actual[k],v)):actual===want;
-    if(record.status==='passed'&&record.kind==='deploy'){
-      for(const expectedProbe of qualification.probes){const observation=record.readiness.observations.find(o=>o.name===expectedProbe.name);const expected=structuredClone(expectedProbe.expected);if(expectedProbe.body&&Object.hasOwn(expectedProbe.body,'jobId'))delete expected.jobId;
-        if(!observation||!contains(observation.observed,expected))throw Error('Imported business response differs from qualification: '+expectedProbe.name);
-        if(record.scenario.includes('-git-')){const after=record.postCompletionReadiness.observations.find(o=>o.name===expectedProbe.name);if(!after||!contains(after.observed,expected))throw Error('Imported post-terminal business response differs from qualification: '+expectedProbe.name);}
-        if(record.scenario.endsWith('-cli')) {const after=record.nativeCompletion.postCompletionReadiness.observations.find(o=>o.name===expectedProbe.name);if(!after||!contains(after.observed,expected)||!Number.isFinite(Date.parse(after.observedAt))||Date.parse(after.observedAt)<Date.parse(record.nativeCompletion.finishedAt))throw Error('Imported post-completion business response differs from qualification: '+expectedProbe.name);}
-      }
-    }
+    validateImportedDeploymentBusiness(record,qualification);
     if(record.status==='passed'&&record.kind==='package') {
       if(record.artifacts.format!==qualification.artifacts.format)throw Error('Imported artifact format differs from qualification');
       if(scenario.fixture.startsWith('lambda-')) {
@@ -195,6 +193,7 @@ try {
     await verifyImportedPredecessor(record);
     for(const item of record.evidence) { if(!item.file||!item.sha256) throw Error('Evidence requires file and SHA256'); if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Evidence checksum mismatch: '+item.file); }
     await verifyImportedBuildTiming(record,{base:root});
+    await verifyImportedClock(record,{base:root});await verifyImportedAttempt(record,{base:root});
     await verifyImportedLambdaAdmission(record,{base:root,qualification});
     if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='oci-compressed') {
       const selected=qualification.artifacts.images[0];
