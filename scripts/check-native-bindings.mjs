@@ -20,7 +20,17 @@ try {
   const second=await prepare(options);assert.deepEqual(before,await Promise.all(files.map(f=>readFile(path.join(outputDir,f),'utf8'))));assert.deepEqual(first.nativeBindings,second.nativeBindings);
   await assert.rejects(readFile(path.join(outputDir,'app/deleted-source.mjs')),{code:'ENOENT'});assert.equal(await readFile(path.join(outputDir,'app/node_modules/offline-cache/value'),'utf8'),'retained');
   for(const file of files.filter(f=>/\.(mjs|ts)$/.test(f))){const syntax=spawnSync(process.execPath,['--input-type=module','--check'],{input:await readFile(path.join(outputDir,file),'utf8'),encoding:'utf8'});assert.equal(syntax.status,0,syntax.stderr);}
-  if(provider==='candidate')assert.equal(JSON.parse(before[0]).stackConfig.tags[0].name,'benchmark-owner');
+  if(provider==='candidate'){
+   assert.equal(JSON.parse(before[0]).stackConfig.tags[0].name,'benchmark-owner');
+   const previous=process.env.CANDIDATE_AWS_ACCOUNT;process.env.CANDIDATE_AWS_ACCOUNT='commerce-test-account';
+   try {
+    const bound=await prepare(options);
+    for(const operation of ['setup','package','update','cleanup'])for(const argv of bound.commands[operation]){
+     const index=argv.indexOf('--awsAccount');assert.ok(index>=0);assert.equal(argv[index+1],'commerce-test-account');assert.equal(argv.filter(v=>v==='--awsAccount').length,1);
+    }
+    assert.ok(!bound.commands.update[0].includes('--fullDeploy'));
+   }finally{if(previous===undefined)delete process.env.CANDIDATE_AWS_ACCOUNT;else process.env.CANDIDATE_AWS_ACCOUNT=previous;}
+  }
   if(provider==='serverless'){const c=JSON.parse(before[0]);assert.equal(c.provider.deploymentBucket.name,nativeBindings.serverless.deploymentBucket);assert.equal(c.provider.tags['benchmark-owner'],owner);assert.deepEqual(c.plugins,['./.benchmark-instrumentation/serverless-build-stage.cjs']);assert.ok(c.package.patterns.includes('!.benchmark-instrumentation/**'));for(const f of ['build-timing.mjs','serverless-build-stage.cjs'])assert.deepEqual(await readFile(path.join(outputDir,'.benchmark-instrumentation',f)),await readFile(path.join(repo,'providers',f)));}
   if(provider==='sst')assert.ok(before[0].includes("'benchmark:owner'"));
   if(provider==='cdk'){assert.equal(JSON.parse(before[0]).context['@aws-cdk/core:bootstrapQualifier'],'boffline');assert.ok(before[1].includes("Tags.of(stack).add('benchmark-owner'"));assert.ok(second.commands.update[0].includes('bench-toolkit-offline'));}

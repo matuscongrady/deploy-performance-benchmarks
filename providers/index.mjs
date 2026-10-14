@@ -72,9 +72,11 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
     const resources = Object.fromEntries(isLambda ? functions.map((f) => [resourceName(f.name), { type:'function', properties:{ runtime:'nodejs22.x', memory:512, timeout:30, packaging:{ type:'js-bundle', properties:{ entryfilePath:`app/${relative(join(repoRoot,manifest.lambda.context),join(repoRoot,f.entry))}`, nodeVersion:22,...f.name==='report'&&{dependenciesToExcludeFromBundle:['pdfkit']} } } } }]) : services.map((s) => [s.name, { type:'web-service', properties:{ resources:{cpu:0.25,memory:512}, packaging:scenario.fixture === 'python' ? {type:'buildpack',properties:{sourceDirectoryPath:`app/${s.name}`}} : {type:'js-bundle',properties:{entryfilePath:`app/${s.name}/server.mjs`,nodeVersion:22,outputModuleFormat:'esm'}}, environment:[{name:'PORT',value:'3000'}] } }]));
     await write(outputDir,'candidate.yml',json({ projectName:name, resources,...owner&&{stackConfig:{tags:[{name:'benchmark-owner',value:owner}]}} }));
     const executable = process.env.CANDIDATE_CLI || '<CANDIDATE_CLI>';
-    const common = ['--configPath','candidate.yml','--stage',stage,'--region',region,'--autoConfirmOperation'];
+    const account = process.env.CANDIDATE_AWS_ACCOUNT;
+    const accountArgs = account ? ['--awsAccount',account] : [];
+    const common = ['--configPath','candidate.yml','--stage',stage,'--region',region,'--autoConfirmOperation',...accountArgs];
     result.commands.setup = [[executable,'deploy',...common,'--fullDeploy']];
-    result.commands.package = [[executable,'package','--configPath','candidate.yml','--stage',stage,'--region',region]];
+    result.commands.package = [[executable,'package','--configPath','candidate.yml','--stage',stage,'--region',region,...accountArgs]];
     result.commands.update = [[executable,'deploy',...common]];
     result.commands.cleanup = [[executable,'delete',...common]];
     result.notes.push('Lambda functions use the native JavaScript builder and shared-layer defaults. The report keeps PDFKit external so its font assets remain available. Node containers use ESM output to preserve the source entrypoint guard; Python uses the native source buildpack. Native map and minification defaults are retained. Updates use automatic fast deployment; setup alone forces a full deployment.');
