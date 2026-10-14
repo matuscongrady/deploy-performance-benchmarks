@@ -1,0 +1,4 @@
+{
+  "scenario": "deploy-lambda-1-cli",
+  "baseCommit": "2981858297d044eeb74b2a1a2587e06cebcb9333"
+}

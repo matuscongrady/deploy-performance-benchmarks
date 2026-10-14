@@ -1,0 +1,23 @@
+{
+  "projectName": "bench-commerce-lambda-1",
+  "resources": {
+    "report": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/report.mjs",
+            "nodeVersion": 22,
+            "dependenciesToExcludeFromBundle": [
+              "pdfkit"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
