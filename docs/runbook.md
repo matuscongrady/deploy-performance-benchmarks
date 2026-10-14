@@ -42,6 +42,12 @@ For deployment, save every native function name/service URL, baseline response a
 
 For AWS deployments, set `environment.accountId` to the verified 12-digit disposable account ID. The timed runner checks the authenticated identity before starting. Set the qualification’s `appId` to the existing application’s `--app-id`. Copy `docs/qualification.example.json` into the ignored run directory and replace its values with observed evidence. The `approved` field means the measurement has been technically qualified. It does not grant account access or approve a benchmark campaign. Set it only after the checks above. For packaging, replace `probes` with a qualified `artifacts` object as described in [result data](results.md).
 
+For Lambda updates, bind every existing function in `nativeResources` as `{name, type: "lambda", arn}`. Use the workload names from the selected manifest and ARNs from the untimed native deployment. Set `nativeBindings.owner` to the exact task owner used during preparation. Candidate/SLS/CDK also need `nativeStackName`; candidate needs `nativeDeploymentBucket` and each function’s generated `resourceName`. SST needs `nativeAppName` and `nativeStateBucket`. These are observed identities, not proposed names.
+
+Run an excluded code update with the actual native fast path before starting the measured series. The runner observes function ownership, configuration, code and layers before and after every update. Candidate/SLS/CDK must retain their CloudFormation stack and physical-resource inventory. Candidate must commit the next fast release with matching deployed code. CDK must report hotswapping with no ignored changes. Serverless must report every selected function update as successful. SST must complete the exact attempt’s backend update and event history without creating, replacing or deleting resources. `SST_RUN_ID` binds that history to the run; native build settings stay unchanged. All these checks run outside the business-readiness timer. Failed admission retains the attempt as failed.
+
+Lambda Git measurements require the same immutable update admission from the native CI/hosted observer. The current CLI runner produces it automatically; qualify and bind the Git observer before measuring that journey. An unbound Git result is rejected rather than accepted on business probes alone.
+
 ## 4. Make the source change
 
 ```sh

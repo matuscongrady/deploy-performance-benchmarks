@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {validateBuildSummary} from './build-timing.mjs';
+import {validateLambdaAdmission} from './lambda-update-state.mjs';
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export async function json(file) { return JSON.parse(await readFile(file, 'utf8')); }
 export async function save(file, value) { await mkdir(path.dirname(file), {recursive:true}); await writeFile(file, JSON.stringify(value,null,2)+'\n'); }
@@ -221,5 +222,6 @@ export function validateRecord(r) {
       }
     }
   }
+  validateLambdaAdmission(r);
   return r;
 }

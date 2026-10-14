@@ -63,4 +63,4 @@ Heroku’s generation and account plan must be selected before testing. Classic 
 
 If a platform exposes build time but hides its artifact size, it can appear in the speed chart. Its size stays unavailable.
 
-There are no measured results yet. [Measurement rules](docs/methodology.md) define which records qualify. [The result format](docs/results.md) lets another person check or repeat a run without relying on this conversation.
+The first local Lambda packaging campaign is complete for one, five and twenty-five functions. It used a source-built candidate prerelease; its raw evidence and charts are still awaiting publication. Those preliminary measurements are not launch performance claims. [Measurement rules](docs/methodology.md) define which records qualify. [The result format](docs/results.md) lets another person check or repeat a run without relying on this conversation.

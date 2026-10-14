@@ -7,7 +7,14 @@ const json = (v) => JSON.stringify(v, null, 2) + '\n';
 const exists = async (p) => lstat(p).then(() => true, () => false);
 const write = async (dir, name, value) => { await mkdir(dirname(join(dir, name)), { recursive: true }); await writeFile(join(dir, name), typeof value === 'string' ? value : json(value)); };
 const safe = (v, label) => { if (!/^[a-z][a-z0-9-]{0,39}$/.test(v)) throw new Error(`${label} must be a lower-case neutral identifier (maximum 40 characters)`); return v; };
-const copySource = async (source, destination) => cp(source, destination, { recursive: true, filter: (p) => !p.split('/').some((s) => ['node_modules','.venv','__pycache__','.git','workload-locks'].includes(s)) });
+const copySource = async (source, destination) => {
+  if((await lstat(destination).catch(()=>null))?.isSymbolicLink())throw Error('Application source destination must be an owned directory');
+  await mkdir(destination,{recursive:true});
+  // Retain installed dependencies, but remove old inputs before refreshing source.
+  // Otherwise deleted or renamed files survive the next prepare/deploy.
+  for(const entry of await readdir(destination))if(!['node_modules','.venv'].includes(entry))await rm(join(destination,entry),{recursive:true,force:true});
+  await cp(source,destination,{recursive:true,filter:p=>!p.split('/').some(s=>['node_modules','.venv','__pycache__','.git','workload-locks'].includes(s))});
+};
 
 /** Generate a native provider project and a command plan. This never invokes a cloud API. */
 export async function prepare({ provider, scenario, outputDir, repoRoot, runId, region = 'eu-west-1', stage = 'bench', nativeBindings = {} }) {
