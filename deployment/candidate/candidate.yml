@@ -1,0 +1,383 @@
+{
+  "projectName": "bench-commerce-lambda-25",
+  "resources": {
+    "report": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/report.mjs",
+            "nodeVersion": 22,
+            "dependenciesToExcludeFromBundle": [
+              "pdfkit"
+            ]
+          }
+        }
+      }
+    },
+    "productLookup": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/product-lookup.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "cartPricing": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/cart-pricing.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "createOrder": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/create-order.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "notification": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/notification.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "productSearch": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/product-search.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "categoryList": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/category-list.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "inventoryCheck": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/inventory-check.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "reserveStock": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/reserve-stock.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "releaseStock": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/release-stock.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "shippingQuote": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/shipping-quote.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "taxQuote": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/tax-quote.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "applyDiscount": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/apply-discount.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "paymentIntent": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/payment-intent.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "paymentWebhook": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/payment-webhook.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "orderStatus": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/order-status.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "cancelOrder": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/cancel-order.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "returnRequest": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/return-request.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "customerProfile": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/customer-profile.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "customerToken": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/customer-token.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "invoice": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/invoice.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "catalogImport": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/catalog-import.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "catalogFeed": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/catalog-feed.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "dailySummary": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/daily-summary.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    },
+    "shipmentUpdate": {
+      "type": "function",
+      "properties": {
+        "runtime": "nodejs22.x",
+        "memory": 512,
+        "timeout": 30,
+        "packaging": {
+          "type": "js-bundle",
+          "properties": {
+            "entryfilePath": "../../fixtures/lambdas/handlers/shipment-update.mjs",
+            "nodeVersion": 22
+          }
+        }
+      }
+    }
+  }
+}
