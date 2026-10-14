@@ -76,7 +76,7 @@ export async function prepare({ provider, scenario, outputDir, repoRoot, runId, 
     const accountArgs = account ? ['--awsAccount',account] : [];
     const common = ['--configPath','candidate.yml','--stage',stage,'--region',region,'--autoConfirmOperation',...accountArgs];
     result.commands.setup = [[executable,'deploy',...common,'--fullDeploy']];
-    result.commands.package = [[executable,'package','--configPath','candidate.yml','--stage',stage,'--region',region,...accountArgs]];
+    result.commands.package = [[executable,'package','--configPath','candidate.yml','--stage',stage,'--region',region]];
     result.commands.update = [[executable,'deploy',...common]];
     result.commands.cleanup = [[executable,'delete',...common]];
     result.notes.push('Lambda functions use the native JavaScript builder and shared-layer defaults. The report keeps PDFKit external so its font assets remain available. Node containers use ESM output to preserve the source entrypoint guard; Python uses the native source buildpack. Native map and minification defaults are retained. Updates use automatic fast deployment; setup alone forces a full deployment.');
