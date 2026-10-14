@@ -19,6 +19,7 @@ Required fields:
 | `cacheEvidence` | Per-attempt test/app/provider/run/source/series binding, observed controls, `proofFile` and `proofSHA` |
 | `evidence` | Relative log/artifact paths and SHA256 checksums |
 | `readiness` | Deployment business probe responses with correct revisions |
+| `lambdaUpdateAdmission` | Lambda deployment’s before/after owned function observations, native fast-path proof and immutable sidecar/log checksums, outside readiness timing |
 | `artifacts` | Packaging’s complete artifact set, format, sizes and hashes |
 
 ## Two Lambda packaging times

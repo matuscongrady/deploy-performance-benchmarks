@@ -9,6 +9,7 @@ import {verifyImportedPredecessor} from './git-predecessor.mjs';
 import {measureDeployment} from './deployment-timer.mjs';
 import {needsSstRollout,admitSstRollout,captureSstRolloutBaseline} from './sst-rollout.mjs';
 import {captureBuildInputs,collectBuildTiming,verifyImportedBuildTiming,buildClock} from './build-timing.mjs';
+import {needsLambdaUpdate,captureLambdaState,compareLambdaUpdate,captureLambdaPath,verifyImportedLambdaAdmission} from './lambda-update-state.mjs';
 const {positional,flags}=parseArgs(process.argv.slice(2));
 const [operation,id,provider]=positional;
 try {
@@ -47,7 +48,11 @@ try {
       const identity=await command(['aws','sts','get-caller-identity','--region',qualification.environment.region,'--output','json']);
       if(identity.exitCode!==0||JSON.parse(identity.stdout).Account!==qualification.environment.accountId)throw Error('Authenticated AWS account differs from qualification');
     }
-    let baseline,componentsBefore,rolloutBaseline;
+    let baseline,componentsBefore,rolloutBaseline,lambdaBaseline,lambdaUpdateAdmission;
+    if(needsLambdaUpdate(scenario)){
+      if(provider==='sst'&&qualification.nativeAppName!==plan.appName)throw Error('Qualified SST Lambda app differs from the generated project');
+      lambdaBaseline=await captureLambdaState(qualification,provider,command);
+    }
     if(needsSstRollout(scenario,provider)){const {verifyExistingApplication}=await import('./existing-app.mjs');await verifyExistingApplication({q:qualification,provider,appName:plan.appName,region:qualification.environment.region});}
     if(scenario.fixture==='five-services'){const {captureComponents}=await import('./component-state.mjs');componentsBefore=await captureComponents(qualification.componentSnapshots);}
     if(scenario.kind==='deploy') {const {probe}=await import('./probe.mjs');baseline=await probe(qualification.baselineProbes,{timeoutMs:30000});}
@@ -83,7 +88,7 @@ try {
       const nativeStart=performance.now();let passed=true,nativeFailure;
       for(let i=0;i<commands.length;i++) {
         const stdoutFile=path.join(evidenceDir,`command-${i}.stdout.log`),stderrFile=path.join(evidenceDir,`command-${i}.stderr.log`);
-        const result=await command(commands[i],{cwd:plan.cwd,env:{...plan.env,BENCH_SOURCE_COMMIT:git.stdout.trim(),BENCH_RUN_ID:runId,...buildEnv},stdoutFile,stderrFile});
+        const result=await command(commands[i],{cwd:plan.cwd,env:{...plan.env,BENCH_SOURCE_COMMIT:git.stdout.trim(),BENCH_RUN_ID:runId,...provider==='sst'&&needsLambdaUpdate(scenario)&&{SST_RUN_ID:runId},...buildEnv},stdoutFile,stderrFile});
         logs.push({argv:result.argv,pid:result.pid,exitCode:result.exitCode,durationMs:result.durationMs,stdoutFile,stderrFile});
         if(result.exitCode!==0) {passed=false;nativeFailure=`Native command ${i+1} failed`;break;}
       }
@@ -123,9 +128,18 @@ try {
       if(status==='passed')try{buildTiming=await collectBuildTiming({spec:qualification.buildTiming,identity:buildIdentity,input:buildInput,nativeFile:buildNativeFile,operation:operationTiming,commands:logs.filter(l=>l.phase!=='verification-outside-timer'),artifacts,base:root});}catch(e){status='unqualified';failure=e.message;buildTiming.failure=e.message;}
     }
     let reuse,rolloutAdmission;
+    if(status==='passed'&&lambdaBaseline)try{
+      const after=await captureLambdaState(qualification,provider,command);
+      const compared=compareLambdaUpdate(lambdaBaseline,after,{provider,names:qualification.probes.map(p=>p.name)});
+      const nativePath=await captureLambdaPath(qualification,provider,{before:lambdaBaseline,after,runId,logs,runCommand:command});
+      const nativeLogEvidence=[];
+      for(const log of logs)for(const file of [log.stdoutFile,log.stderrFile])nativeLogEvidence.push({file:path.relative(root,file),sha256:await sha256(file)});
+      lambdaUpdateAdmission={schemaVersion:1,...compared,provider,runId,sourceCommit:git.stdout.trim(),appId,stage:flags.stage||'bench',accountId:qualification.environment.accountId,region:qualification.environment.region,before:lambdaBaseline,after,path:nativePath,nativeLogEvidence};
+    }catch(e){status='failed';failure=e.message;lambdaUpdateAdmission={verified:false,outsideReadinessTimer:true,before:lambdaBaseline,failure:e.message};}
     if(status==='passed'&&needsSstRollout(scenario,provider)){try{rolloutAdmission=await admitSstRollout(qualification,{baseline:rolloutBaseline});}catch(e){status='failed';failure=e.message;rolloutAdmission=e.rolloutAdmission;}}
     if(status==='passed'&&scenario.fixture==='five-services'){try{const {captureComponents,compareUnchanged}=await import('./component-state.mjs');reuse=compareUnchanged(componentsBefore,await captureComponents(qualification.componentSnapshots));}catch(e){status='failed';failure=e.message;}}
     const evidence=[{file:cacheEvidence.proofFile,sha256:cacheEvidence.proofSHA}];
+    if(lambdaUpdateAdmission){const file=path.join(evidenceDir,'lambda-update-admission.json');await saveResult(file,lambdaUpdateAdmission);const proof={file:path.relative(root,file),sha256:await sha256(file)};evidence.push(proof);lambdaUpdateAdmission={...lambdaUpdateAdmission,proof};}
     if(buildInput){evidence.push({file:path.relative(root,buildInput.file),sha256:buildInput.sha256});try{const nativeEvidence={file:path.relative(root,buildNativeFile),sha256:await sha256(buildNativeFile)};evidence.push(nativeEvidence);buildTiming.nativeEvidence=nativeEvidence;}catch(e){if(e.code!=='ENOENT')throw e;}}
     if(rolloutAdmission){const file=path.join(evidenceDir,'rollout-admission.json');await save(file,rolloutAdmission);evidence.push({file:path.relative(root,file),sha256:await sha256(file)});}
     for(const artifact of [...(artifacts.files||[]),...(artifacts.proofs||[])])if(['oci-compressed','lambda-zip'].includes(artifacts.format)){
@@ -138,6 +152,7 @@ try {
     const record={schemaVersion:1,kind:scenario.kind,scenario:id,provider,runId,appId,stage:flags.stage||'bench',status,failure,sourceCommit:git.stdout.trim(),startedAt,commandFinishedAt,finishedAt,durationMs,commandDurationMs,nativeCompletion,baseline,readiness,reuse,artifacts,toolVersion:qualification.toolVersion,environment:{...qualification.environment,runner:os.hostname(),platform:os.platform(),arch:os.arch(),node:process.version,cpu:os.cpus()[0]?.model,cores:os.availableParallelism(),memoryBytes:os.totalmem()},cacheEvidence,settings:qualification.settings,evidence,commands:logs};
     if(buildInput)Object.assign(record,{buildTiming,operationTiming});
     if(rolloutAdmission)record.rolloutAdmission=rolloutAdmission;
+    if(lambdaUpdateAdmission)record.lambdaUpdateAdmission=lambdaUpdateAdmission;
     validateRecord(record); await saveResult(resultFile,record);
     console.log(JSON.stringify(record,null,2)); if(status!=='passed') process.exitCode=1;
   } else if(operation==='record-managed') {
@@ -173,6 +188,7 @@ try {
     await verifyImportedPredecessor(record);
     for(const item of record.evidence) { if(!item.file||!item.sha256) throw Error('Evidence requires file and SHA256'); if(await sha256(path.resolve(root,item.file))!==item.sha256) throw Error('Evidence checksum mismatch: '+item.file); }
     await verifyImportedBuildTiming(record,{base:root});
+    await verifyImportedLambdaAdmission(record,{base:root});
     if(record.status==='passed'&&record.kind==='package'&&record.artifacts.format==='oci-compressed') {
       const selected=qualification.artifacts.images[0];
       if(record.artifacts.name!==selected.name||record.artifacts.platform!==(qualification.artifacts.platform||'linux/amd64')||selected.expectedDigest&&record.artifacts.manifestDigest!==selected.expectedDigest)throw Error('Imported OCI image/platform/digest differs from qualification');
