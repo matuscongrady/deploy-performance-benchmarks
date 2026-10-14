@@ -1,6 +1,6 @@
 # Run a test
 
-No cloud benchmark has been run from this repository. Prepare and review a campaign before enabling CI or executing deployment commands.
+Prepare and review a campaign before enabling CI or executing deployment commands.
 
 ## 1. Choose the branch and install the fixtures
 
@@ -23,6 +23,8 @@ git switch -c trial/lambda-five-serverless-001
 ## 2. Prepare the provider
 
 Use [provider setup](provider-setup.md). Pin the candidate executable with `CANDIDATE_CLI`; keep its download/source reference, version and SHA256. Do not benchmark an unidentified local binary. Install each competitor’s tools with its checked-in lockfile. Record the actual version reported by the CLI as well as the package version.
+
+If several AWS accounts are connected to the candidate's Console organization, set `CANDIDATE_AWS_ACCOUNT` to the connected disposable account name. Preparation passes that value as the native `--awsAccount` flag for setup, packaging, updates and cleanup. This selects the target account; it does not supply AWS credentials. Inspect the generated command before creating resources.
 
 ```sh
 node scripts/bench.mjs prepare deploy-lambda-5-cli serverless --app-id commerce-five --run-id five-001
