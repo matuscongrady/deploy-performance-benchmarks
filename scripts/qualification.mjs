@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {root,json} from './lib.mjs';
 import {needsSstRollout,validateSstRolloutBindings} from './sst-rollout.mjs';
 import {validateBuildQualification,verifyBuildQualificationEvidence} from './build-timing.mjs';
+import {validateLambdaBindings,needsLambdaUpdate} from './lambda-update-state.mjs';
 function contains(actual,expected) {if(Array.isArray(expected))return Array.isArray(actual)&&actual.length===expected.length&&expected.every((v,i)=>contains(actual[i],v));if(expected&&typeof expected==='object')return actual&&Object.entries(expected).every(([k,v])=>contains(actual[k],v));return actual===expected;}
 export async function checkQualification(q,scenario,provider,{sourceBound=false}={}) {
   validateBuildQualification(q,scenario,provider);
@@ -51,5 +52,6 @@ export async function checkQualification(q,scenario,provider,{sourceBound=false}
     }
     }
     for(const c of components) {const before=q.baselineProbes.find(p=>p.name===c.name),after=q.probes.find(p=>p.name===c.name);const changed=scenario.fixture!=='five-services'||m.fiveServices.changedServices.includes(c.name);if(changed=== (before.expected.revision===after.expected.revision))throw Error('Incorrect changed/unchanged revision for '+c.name);}
+    if(needsLambdaUpdate(scenario))validateLambdaBindings(q,provider);
   }
 }
